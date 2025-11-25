@@ -1,6 +1,6 @@
 // lib/services/auto_reminder_service.dart
-// (en tu comentario lo llamaste auto_reminder_service_v7.dart, pero ReminderGeneratorV7
-// ya lo importa como auto_reminder_service.dart, así que mantengo ese nombre)
+
+import 'package:auri_app/pages/survey/models/survey_models.dart';
 
 class AutoReminderServiceV7 {
   static List<ReminderAuto> generateAll({
@@ -9,22 +9,36 @@ class AutoReminderServiceV7 {
     required ReminderSettings settings,
     required List<UserTask> tasks,
     required DateTime now,
+
+    // NUEVO: pagos y cumpleaños extra
+    List<ExtraPaymentEntry> extraPayments = const [],
+    List<ExtraBirthdayEntry> extraBirthdays = const [],
   }) {
     final list = <ReminderAuto>[];
 
-    // 1. Pagos mensuales
+    // 1. Pagos mensuales base
     list.addAll(_generateMonthly(payments, settings.anticipationDays, now));
 
-    // 2. Cumpleaños
+    // 2. Pagos adicionales (suscripciones)
+    list.addAll(
+      _generateExtraPayments(extraPayments, settings.anticipationDays, now),
+    );
+
+    // 3. Cumpleaños base (usuario / pareja)
     list.addAll(_generateBirthdays(birthdays, settings.anticipationDays, now));
 
-    // 3. Agenda semanal (Opción C)
+    // 4. Cumpleaños extra
+    list.addAll(
+      _generateExtraBirthdays(extraBirthdays, settings.anticipationDays, now),
+    );
+
+    // 5. Agenda semanal
     list.add(_generateWeeklyAgenda(tasks, now));
 
     return list;
   }
 
-  // -------------------------- PAGOS --------------------------
+  // -------------------------- PAGOS BASE --------------------------
   static List<ReminderAuto> _generateMonthly(
     MonthlyPayments p,
     int anticipation,
@@ -78,7 +92,53 @@ class AutoReminderServiceV7 {
     return out;
   }
 
-  // -------------------------- CUMPLEAÑOS --------------------------
+  // -------------------------- PAGOS EXTRA --------------------------
+  static List<ReminderAuto> _generateExtraPayments(
+    List<ExtraPaymentEntry> list,
+    int anticipation,
+    DateTime now,
+  ) {
+    final out = <ReminderAuto>[];
+
+    for (final p in list) {
+      if (p.day <= 0) continue;
+
+      final thisMonth = _safeDate(now.year, now.month, p.day);
+      final nextMonth = _safeDate(
+        now.month == 12 ? now.year + 1 : now.year,
+        now.month == 12 ? 1 : now.month + 1,
+        p.day,
+      );
+
+      final title = "Pago ${p.name}";
+
+      if (thisMonth.isAfter(now)) {
+        out.add(ReminderAuto(title, thisMonth, isPayment: true));
+
+        if (anticipation > 0) {
+          final soon = thisMonth.subtract(Duration(days: anticipation));
+          if (soon.isAfter(now)) {
+            out.add(ReminderAuto("Pronto: $title", soon, isPayment: true));
+          }
+        }
+      }
+
+      if (nextMonth.isAfter(now)) {
+        out.add(ReminderAuto(title, nextMonth, isPayment: true));
+
+        if (anticipation > 0) {
+          final soon = nextMonth.subtract(Duration(days: anticipation));
+          if (soon.isAfter(now)) {
+            out.add(ReminderAuto("Pronto: $title", soon, isPayment: true));
+          }
+        }
+      }
+    }
+
+    return out;
+  }
+
+  // -------------------------- CUMPLEAÑOS BASE --------------------------
   static List<ReminderAuto> _generateBirthdays(
     BirthdayData b,
     int anticipation,
@@ -104,6 +164,32 @@ class AutoReminderServiceV7 {
         }
       }
     });
+
+    return out;
+  }
+
+  // -------------------------- CUMPLEAÑOS EXTRA --------------------------
+  static List<ReminderAuto> _generateExtraBirthdays(
+    List<ExtraBirthdayEntry> list,
+    int anticipation,
+    DateTime now,
+  ) {
+    final out = <ReminderAuto>[];
+
+    for (final b in list) {
+      final base = DateTime(now.year, b.month, b.day, 9);
+      final next = _nextAnnual(base, now);
+      final title = "Cumpleaños: ${b.name}";
+
+      out.add(ReminderAuto(title, next, isBirthday: true));
+
+      if (anticipation > 0) {
+        final soon = next.subtract(Duration(days: anticipation));
+        if (soon.isAfter(now)) {
+          out.add(ReminderAuto("Pronto: $title", soon, isBirthday: true));
+        }
+      }
+    }
 
     return out;
   }
@@ -149,7 +235,7 @@ class AutoReminderServiceV7 {
 }
 
 // ---------------------------------------------------------------------------
-// MODELOS (tal como los tenías, los dejo igual)
+// MODELOS
 // ---------------------------------------------------------------------------
 
 class ReminderAuto {

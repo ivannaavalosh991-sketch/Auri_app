@@ -26,7 +26,7 @@ class SurveyController {
 
   final reminderAdvance = TextEditingController();
 
-  // NUEVO: cumpleaños del usuario
+  // cumpleaños del usuario (formato visual "dd/MM")
   final userBirthday = TextEditingController();
 
   //---------------------------------------------------------------------------
@@ -66,6 +66,10 @@ class SurveyController {
   List<PaymentEntry> payments = [];
   List<BirthdayEntry> birthdays = [];
 
+  // NUEVO V2.0: pagos y cumpleaños extra (estructurados)
+  List<ExtraPaymentEntry> extraPayments = [];
+  List<ExtraBirthdayEntry> extraBirthdays = [];
+
   bool loaded = false;
 
   //---------------------------------------------------------------------------
@@ -97,6 +101,10 @@ class SurveyController {
     payments = data.payments;
     birthdays = data.birthdays;
     activities = data.activities;
+
+    // NUEVO: cargar estructuras extra (si existen)
+    extraPayments = data.extraPayments;
+    extraBirthdays = data.extraBirthdays;
 
     // SYNC UI FIELDS
     hasClasses = classes.isNotEmpty;
@@ -189,6 +197,7 @@ class SurveyController {
           lname.contains("pap") ||
           lname.contains("herman") ||
           lname.contains("tío") ||
+          lname.contains("tio") ||
           lname.contains("abu")) {
         fam.add("${b.name} - $date");
       } else {
@@ -343,6 +352,11 @@ class SurveyController {
   // BUILD FINAL MODEL
   //---------------------------------------------------------------------------
   SurveyData toSurvey() {
+    final builtClasses = _buildClasses();
+    final builtExams = _buildExams();
+    final builtPayments = _buildPayments();
+    final builtBirthdays = _buildBirthdays();
+
     return SurveyData(
       profile: UserProfile(
         name: name.text.trim(),
@@ -357,11 +371,16 @@ class SurveyController {
         reminderAdvance: reminderAdvance.text.trim(),
         wantsWeeklyAgenda: wantsWeeklyAgenda,
       ),
-      classes: _buildClasses(),
-      exams: _buildExams(),
+      classes: builtClasses,
+      exams: builtExams,
       activities: activities,
-      payments: _buildPayments(),
-      birthdays: _buildBirthdays(),
+      payments: builtPayments,
+      birthdays: builtBirthdays,
+
+      // V2.0: de momento se mantienen como listas independientes
+      // que podrán llenarse desde una UI más avanzada.
+      extraPayments: extraPayments,
+      extraBirthdays: extraBirthdays,
     );
   }
 
@@ -508,7 +527,7 @@ class SurveyController {
     if (changes.isNotEmpty) {
       final now = DateTime.now();
 
-      final autoList = await AutoReminderServiceV7.generateAll(
+      final autoList = AutoReminderServiceV7.generateAll(
         payments: _toMonthlyPayments(newData),
         birthdays: _toBirthdayData(newData),
         settings: ReminderSettings(
@@ -517,6 +536,10 @@ class SurveyController {
         ),
         tasks: _toUserTasks(newData),
         now: now,
+
+        // 🔥 NUEVO: compatibilidad con Survey 2.0
+        extraPayments: newData.extraPayments,
+        extraBirthdays: newData.extraBirthdays,
       );
 
       final hiveList = ReminderGeneratorV7.convert(autoList);

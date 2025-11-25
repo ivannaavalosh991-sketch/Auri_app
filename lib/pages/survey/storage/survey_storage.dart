@@ -1,4 +1,5 @@
 // lib/pages/survey/storage/survey_storage.dart
+
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/survey_models.dart';
@@ -9,20 +10,18 @@ class SurveyStorage {
 
   static Future<void> saveSurvey(SurveyData data) async {
     final prefs = await SharedPreferences.getInstance();
-    final jsonString = jsonEncode(data.toJson());
-    await prefs.setString(_keySurveyData, jsonString);
+    await prefs.setString(_keySurveyData, jsonEncode(data.toJson()));
   }
 
   static Future<SurveyData?> loadSurvey() async {
     final prefs = await SharedPreferences.getInstance();
-    final jsonString = prefs.getString(_keySurveyData);
-    if (jsonString == null) return null;
+    final raw = prefs.getString(_keySurveyData);
+    if (raw == null) return null;
 
     try {
-      final jsonMap = jsonDecode(jsonString);
-      return SurveyData.fromJson(jsonMap);
-    } catch (e) {
-      print("ERROR cargando survey: $e");
+      final map = jsonDecode(raw);
+      return SurveyData.fromJson(map);
+    } catch (_) {
       return null;
     }
   }

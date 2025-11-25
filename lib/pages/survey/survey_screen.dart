@@ -1,3 +1,5 @@
+// lib/pages/survey/survey_screen.dart
+
 import 'package:flutter/material.dart';
 import 'controllers/survey_controller.dart';
 import 'widgets/survey_section.dart';
@@ -5,6 +7,7 @@ import 'widgets/survey_text_field.dart';
 import 'widgets/survey_multi_text_field.dart';
 import 'widgets/survey_switch.dart';
 import 'package:auri_app/pages/survey/widgets/survey_time_picker.dart';
+import 'models/survey_models.dart';
 
 class SurveyScreen extends StatefulWidget {
   final bool isInitialSetup;
@@ -291,7 +294,12 @@ class _SurveyScreenState extends State<SurveyScreen> {
     );
   }
 
+  // -------------------------------------------------------------
+  // PAGOS (con suscripciones adicionales)
+  // -------------------------------------------------------------
   Widget _pagePagos() {
+    final cs = Theme.of(context).colorScheme;
+
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
@@ -306,25 +314,83 @@ class _SurveyScreenState extends State<SurveyScreen> {
             ),
 
             if (controller.wantsPaymentReminders) ...[
+              const SizedBox(height: 10),
+
               SurveyTextField(
-                label: "Pago del agua",
+                label: "Pago del agua (día del mes)",
                 controller: controller.waterPayment,
               ),
               SurveyTextField(
-                label: "Pago de la luz",
+                label: "Pago de la luz (día del mes)",
                 controller: controller.electricPayment,
               ),
               SurveyTextField(
-                label: "Pago del internet",
+                label: "Pago del internet (día del mes)",
                 controller: controller.internetPayment,
               ),
               SurveyTextField(
-                label: "Pago del teléfono",
+                label: "Pago del teléfono (día del mes)",
                 controller: controller.phonePayment,
               ),
               SurveyTextField(
-                label: "Pago de la renta",
+                label: "Pago de la renta (día del mes)",
                 controller: controller.rentPayment,
+              ),
+
+              const SizedBox(height: 20),
+              const Text(
+                "Pagos adicionales (suscripciones, gimnasio, etc.)",
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 8),
+
+              if (controller.extraPayments.isEmpty)
+                Text(
+                  "Añade aquí servicios como Netflix, Crunchyroll, Spotify...",
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: cs.onSurface.withOpacity(0.7),
+                  ),
+                ),
+
+              ...controller.extraPayments.asMap().entries.map((entry) {
+                final index = entry.key;
+                final item = entry.value;
+
+                return Container(
+                  margin: const EdgeInsets.only(top: 8),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: cs.primary.withOpacity(0.4)),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          "${item.name} – día ${item.day}",
+                          style: const TextStyle(fontSize: 15),
+                        ),
+                      ),
+                      IconButton(
+                        icon: Icon(Icons.delete, color: cs.error),
+                        onPressed: () {
+                          setState(() {
+                            controller.extraPayments.removeAt(index);
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                );
+              }),
+
+              const SizedBox(height: 10),
+
+              OutlinedButton.icon(
+                onPressed: _showAddExtraPaymentDialog,
+                icon: const Icon(Icons.add),
+                label: const Text("Añadir pago adicional"),
               ),
             ],
           ],
@@ -333,21 +399,111 @@ class _SurveyScreenState extends State<SurveyScreen> {
     );
   }
 
+  void _showAddExtraPaymentDialog() {
+    final nameCtrl = TextEditingController();
+    final dayCtrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text("Añadir pago adicional"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameCtrl,
+                decoration: const InputDecoration(
+                  labelText: "Nombre (Ej: Netflix, gimnasio...)",
+                ),
+              ),
+              TextField(
+                controller: dayCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: "Día de cobro (1-31)",
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Cancelar"),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (nameCtrl.text.trim().isEmpty) return;
+                final d = int.tryParse(dayCtrl.text) ?? 1;
+                final day = d.clamp(1, 31);
+
+                setState(() {
+                  controller.extraPayments.add(
+                    ExtraPaymentEntry(
+                      name: nameCtrl.text.trim(),
+                      day: day,
+                      time: "09:00",
+                    ),
+                  );
+                });
+
+                Navigator.pop(context);
+              },
+              child: const Text("Guardar"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // -------------------------------------------------------------
+  // CUMPLEAÑOS (con DatePicker y lista dinámica)
+  // -------------------------------------------------------------
   Widget _pageCumples() {
+    final cs = Theme.of(context).colorScheme;
+
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
         SurveySection(
           title: "Cumpleaños",
           children: [
-            // NUEVO: cumpleaños del usuario
-            SurveyTextField(
-              label: "Tu cumpleaños",
-              controller: controller.userBirthday,
-              hint: "Ej. 27/10",
+            const Text("Tu cumpleaños", style: TextStyle(fontSize: 16)),
+            const SizedBox(height: 6),
+
+            InkWell(
+              onTap: () async {
+                final now = DateTime.now();
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate: now,
+                  firstDate: DateTime(now.year - 100),
+                  lastDate: DateTime(now.year + 1),
+                );
+                if (picked != null) {
+                  setState(() {
+                    controller.userBirthday.text =
+                        "${picked.day.toString().padLeft(2, '0')}/${picked.month.toString().padLeft(2, '0')}";
+                  });
+                }
+              },
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: cs.primary.withOpacity(0.6)),
+                ),
+                child: Text(
+                  controller.userBirthday.text.isEmpty
+                      ? "Selecciona tu fecha"
+                      : controller.userBirthday.text,
+                  style: const TextStyle(fontSize: 15),
+                ),
+              ),
             ),
 
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
 
             SurveySwitch(
               text: "¿Tienes pareja?",
@@ -355,35 +511,186 @@ class _SurveyScreenState extends State<SurveyScreen> {
               onChanged: (v) => setState(() => controller.hasPartner = v),
             ),
 
-            if (controller.hasPartner)
-              SurveyTextField(
-                label: "Cumpleaños de tu pareja",
-                controller: controller.partnerBirthday,
-                hint: "Ej. 12/04",
+            if (controller.hasPartner) ...[
+              const SizedBox(height: 6),
+              const Text("Cumpleaños de tu pareja"),
+              const SizedBox(height: 6),
+
+              InkWell(
+                onTap: () async {
+                  final now = DateTime.now();
+                  final picked = await showDatePicker(
+                    context: context,
+                    initialDate: now,
+                    firstDate: DateTime(now.year - 100),
+                    lastDate: DateTime(now.year + 1),
+                  );
+                  if (picked != null) {
+                    setState(() {
+                      controller.partnerBirthday.text =
+                          "${picked.day.toString().padLeft(2, '0')}/${picked.month.toString().padLeft(2, '0')}";
+                    });
+                  }
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: cs.primary.withOpacity(0.6)),
+                  ),
+                  child: Text(
+                    controller.partnerBirthday.text.isEmpty
+                        ? "Selecciona fecha"
+                        : controller.partnerBirthday.text,
+                    style: const TextStyle(fontSize: 15),
+                  ),
+                ),
               ),
+            ],
 
-            SurveyMultiTextField(
-              label: "Familia (opcional)",
-              controller: controller.familyBirthdays,
-              hint: "Ej. Mamá - 15/08",
-            ),
-
+            const SizedBox(height: 20),
             SurveySwitch(
-              text: "¿Recordar cumpleaños de amigos?",
+              text: "¿Recordar cumpleaños de más personas?",
               value: controller.wantsFriendBirthdays,
               onChanged: (v) =>
                   setState(() => controller.wantsFriendBirthdays = v),
             ),
 
-            if (controller.wantsFriendBirthdays)
-              SurveyMultiTextField(
-                label: "Amigos importantes",
-                controller: controller.friendBirthdays,
-                hint: "Ej. Carlos - 02/11",
+            if (controller.wantsFriendBirthdays) ...[
+              const SizedBox(height: 12),
+              const Text(
+                "Cumpleaños adicionales",
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
               ),
+              const SizedBox(height: 8),
+
+              if (controller.extraBirthdays.isEmpty)
+                Text(
+                  "Añade aquí familia, amigos, etc.",
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: cs.onSurface.withOpacity(0.7),
+                  ),
+                ),
+
+              ...controller.extraBirthdays.asMap().entries.map((entry) {
+                final index = entry.key;
+                final item = entry.value;
+
+                return Container(
+                  margin: const EdgeInsets.only(top: 8),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: cs.primary.withOpacity(0.4)),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          "${item.name} – ${item.day.toString().padLeft(2, '0')}/${item.month.toString().padLeft(2, '0')}",
+                          style: const TextStyle(fontSize: 15),
+                        ),
+                      ),
+                      IconButton(
+                        icon: Icon(Icons.delete, color: cs.error),
+                        onPressed: () {
+                          setState(() {
+                            controller.extraBirthdays.removeAt(index);
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                );
+              }),
+
+              const SizedBox(height: 10),
+
+              OutlinedButton.icon(
+                onPressed: _showAddBirthdayDialog,
+                icon: const Icon(Icons.add),
+                label: const Text("Añadir cumpleaños"),
+              ),
+            ],
           ],
         ),
       ],
+    );
+  }
+
+  void _showAddBirthdayDialog() {
+    final nameCtrl = TextEditingController();
+    DateTime? pickedDate;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setInnerState) {
+            return AlertDialog(
+              title: const Text("Añadir cumpleaños"),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameCtrl,
+                    decoration: const InputDecoration(labelText: "Nombre"),
+                  ),
+                  const SizedBox(height: 12),
+                  ElevatedButton(
+                    onPressed: () async {
+                      final now = DateTime.now();
+                      final d = await showDatePicker(
+                        context: context,
+                        initialDate: pickedDate ?? now,
+                        firstDate: DateTime(now.year - 100),
+                        lastDate: DateTime(now.year + 1),
+                      );
+                      if (d != null) {
+                        setInnerState(() {
+                          pickedDate = d;
+                        });
+                      }
+                    },
+                    child: Text(
+                      pickedDate == null
+                          ? "Seleccionar fecha"
+                          : "${pickedDate!.day.toString().padLeft(2, '0')}/${pickedDate!.month.toString().padLeft(2, '0')}",
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text("Cancelar"),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    if (nameCtrl.text.trim().isEmpty || pickedDate == null) {
+                      return;
+                    }
+
+                    setState(() {
+                      controller.extraBirthdays.add(
+                        ExtraBirthdayEntry(
+                          name: nameCtrl.text.trim(),
+                          day: pickedDate!.day,
+                          month: pickedDate!.month,
+                        ),
+                      );
+                    });
+
+                    Navigator.pop(context);
+                  },
+                  child: const Text("Guardar"),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 

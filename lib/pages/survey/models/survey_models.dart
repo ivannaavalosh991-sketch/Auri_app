@@ -28,11 +28,11 @@ class UserProfile {
 }
 
 // -------------------------------------------------------------
-// USER ROUTINE (solo wake/sleep ahora)
+// USER ROUTINE
 // -------------------------------------------------------------
 class UserRoutine {
-  String wakeUpTime; // "07:30"
-  String sleepTime; // "23:15"
+  String wakeUpTime;
+  String sleepTime;
 
   UserRoutine({required this.wakeUpTime, required this.sleepTime});
 
@@ -51,7 +51,7 @@ class UserRoutine {
 // USER PREFERENCES
 // -------------------------------------------------------------
 class UserPreferences {
-  String reminderAdvance; // "1 día antes"
+  String reminderAdvance;
   bool wantsWeeklyAgenda;
 
   UserPreferences({
@@ -72,14 +72,13 @@ class UserPreferences {
 }
 
 // -------------------------------------------------------------
-// STRUCTURED ENTRIES
+// STRUCTURED MODELS
 // -------------------------------------------------------------
 
-// ---------- Clase semanal ----------
 class ClassEntry {
   String name;
-  String day; // "Lunes"
-  String time; // "08:30"
+  String day;
+  String time;
 
   ClassEntry({required this.name, required this.day, required this.time});
 
@@ -92,11 +91,10 @@ class ClassEntry {
   );
 }
 
-// ---------- Examen ----------
 class ExamEntry {
   String name;
-  String date; // YYYY-MM-DD
-  String time; // HH:mm
+  String date;
+  String time;
 
   ExamEntry({required this.name, required this.date, required this.time});
 
@@ -109,10 +107,9 @@ class ExamEntry {
   );
 }
 
-// ---------- Actividad semanal ----------
 class ActivityEntry {
   String name;
-  String day; // "Martes"
+  String day;
   String time;
 
   ActivityEntry({required this.name, required this.day, required this.time});
@@ -126,11 +123,10 @@ class ActivityEntry {
   );
 }
 
-// ---------- Pago mensual ----------
 class PaymentEntry {
   String name;
-  int day; // 5 = día 5 del mes
-  String time; // "09:00"
+  int day;
+  String time;
 
   PaymentEntry({required this.name, required this.day, required this.time});
 
@@ -143,7 +139,27 @@ class PaymentEntry {
   );
 }
 
-// ---------- Cumpleaños ----------
+class ExtraPaymentEntry {
+  String name;
+  int day;
+  String time;
+
+  ExtraPaymentEntry({
+    required this.name,
+    required this.day,
+    required this.time,
+  });
+
+  Map<String, dynamic> toJson() => {"name": name, "day": day, "time": time};
+
+  factory ExtraPaymentEntry.fromJson(Map<String, dynamic> json) =>
+      ExtraPaymentEntry(
+        name: json["name"] ?? "",
+        day: json["day"] ?? 1,
+        time: json["time"] ?? "09:00",
+      );
+}
+
 class BirthdayEntry {
   String name;
   int day;
@@ -160,9 +176,31 @@ class BirthdayEntry {
   );
 }
 
+class ExtraBirthdayEntry {
+  String name;
+  int day;
+  int month;
+
+  ExtraBirthdayEntry({
+    required this.name,
+    required this.day,
+    required this.month,
+  });
+
+  Map<String, dynamic> toJson() => {"name": name, "day": day, "month": month};
+
+  factory ExtraBirthdayEntry.fromJson(Map<String, dynamic> json) =>
+      ExtraBirthdayEntry(
+        name: json["name"] ?? "",
+        day: json["day"] ?? 1,
+        month: json["month"] ?? 1,
+      );
+}
+
 // -------------------------------------------------------------
-// SURVEY DATA (FINAL STRUCTURED MODEL)
+// SURVEY DATA
 // -------------------------------------------------------------
+
 class SurveyData {
   UserProfile profile;
   UserRoutine routine;
@@ -171,8 +209,12 @@ class SurveyData {
   List<ClassEntry> classes;
   List<ExamEntry> exams;
   List<ActivityEntry> activities;
+
   List<PaymentEntry> payments;
+  List<ExtraPaymentEntry> extraPayments;
+
   List<BirthdayEntry> birthdays;
+  List<ExtraBirthdayEntry> extraBirthdays;
 
   SurveyData({
     required this.profile,
@@ -182,7 +224,9 @@ class SurveyData {
     required this.exams,
     required this.activities,
     required this.payments,
+    required this.extraPayments,
     required this.birthdays,
+    required this.extraBirthdays,
   });
 
   Map<String, dynamic> toJson() => {
@@ -193,7 +237,9 @@ class SurveyData {
     "exams": exams.map((e) => e.toJson()).toList(),
     "activities": activities.map((e) => e.toJson()).toList(),
     "payments": payments.map((e) => e.toJson()).toList(),
+    "extraPayments": extraPayments.map((e) => e.toJson()).toList(),
     "birthdays": birthdays.map((e) => e.toJson()).toList(),
+    "extraBirthdays": extraBirthdays.map((e) => e.toJson()).toList(),
   };
 
   factory SurveyData.fromJson(Map<String, dynamic> json) => SurveyData(
@@ -212,8 +258,14 @@ class SurveyData {
     payments: (json["payments"] as List<dynamic>)
         .map((e) => PaymentEntry.fromJson(e))
         .toList(),
+    extraPayments: (json["extraPayments"] as List<dynamic>? ?? [])
+        .map((e) => ExtraPaymentEntry.fromJson(e))
+        .toList(),
     birthdays: (json["birthdays"] as List<dynamic>)
         .map((e) => BirthdayEntry.fromJson(e))
+        .toList(),
+    extraBirthdays: (json["extraBirthdays"] as List<dynamic>? ?? [])
+        .map((e) => ExtraBirthdayEntry.fromJson(e))
         .toList(),
   );
 }
