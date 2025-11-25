@@ -210,11 +210,11 @@ class SurveyData {
   List<ExamEntry> exams;
   List<ActivityEntry> activities;
 
-  List<PaymentEntry> payments;
-  List<ExtraPaymentEntry> extraPayments;
+  // 👇 en vez de "payments"
+  List<PaymentEntry> basicPayments;
+  List<PaymentEntry> extraPayments;
 
   List<BirthdayEntry> birthdays;
-  List<ExtraBirthdayEntry> extraBirthdays;
 
   SurveyData({
     required this.profile,
@@ -223,10 +223,9 @@ class SurveyData {
     required this.classes,
     required this.exams,
     required this.activities,
-    required this.payments,
+    required this.basicPayments,
     required this.extraPayments,
     required this.birthdays,
-    required this.extraBirthdays,
   });
 
   Map<String, dynamic> toJson() => {
@@ -236,10 +235,9 @@ class SurveyData {
     "classes": classes.map((e) => e.toJson()).toList(),
     "exams": exams.map((e) => e.toJson()).toList(),
     "activities": activities.map((e) => e.toJson()).toList(),
-    "payments": payments.map((e) => e.toJson()).toList(),
+    "basicPayments": basicPayments.map((e) => e.toJson()).toList(),
     "extraPayments": extraPayments.map((e) => e.toJson()).toList(),
     "birthdays": birthdays.map((e) => e.toJson()).toList(),
-    "extraBirthdays": extraBirthdays.map((e) => e.toJson()).toList(),
   };
 
   factory SurveyData.fromJson(Map<String, dynamic> json) => SurveyData(
@@ -255,17 +253,14 @@ class SurveyData {
     activities: (json["activities"] as List<dynamic>)
         .map((e) => ActivityEntry.fromJson(e))
         .toList(),
-    payments: (json["payments"] as List<dynamic>)
+    basicPayments: (json["basicPayments"] as List<dynamic>)
         .map((e) => PaymentEntry.fromJson(e))
         .toList(),
-    extraPayments: (json["extraPayments"] as List<dynamic>? ?? [])
-        .map((e) => ExtraPaymentEntry.fromJson(e))
+    extraPayments: (json["extraPayments"] as List<dynamic>)
+        .map((e) => PaymentEntry.fromJson(e))
         .toList(),
     birthdays: (json["birthdays"] as List<dynamic>)
         .map((e) => BirthdayEntry.fromJson(e))
-        .toList(),
-    extraBirthdays: (json["extraBirthdays"] as List<dynamic>? ?? [])
-        .map((e) => ExtraBirthdayEntry.fromJson(e))
         .toList(),
   );
 }

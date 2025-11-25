@@ -1,59 +1,62 @@
 // lib/services/reminder_scheduler.dart
 
 import 'package:auri_app/models/reminder_hive.dart';
-import 'package:auri_app/services/notification_service.dart';
-import 'package:timezone/timezone.dart' as tz;
 import 'package:auri_app/models/reminder_model.dart';
+import 'package:auri_app/services/notification_service.dart';
 
+/// Capa responsable de traducir [ReminderHive] → [Reminder]
+/// y programar / cancelar notificaciones locales.
 class ReminderScheduler {
   static final _notifier = NotificationService();
 
-  static int _notificationIdFor(ReminderHive r) {
-    // Mismo mapping que ya usabas
-    return r.id.hashCode & 0x7fffffff;
-  }
+  static int _id(ReminderHive r) => r.id.hashCode & 0x7fffffff;
+  static int _idFromString(String id) => id.hashCode & 0x7fffffff;
 
-  static int _notificationIdForId(String reminderId) {
-    return reminderId.hashCode & 0x7fffffff;
-  }
-
+  // -------------------------------------------------------------
+  // PROGRAMAR UN SOLO RECORDATORIO
+  // -------------------------------------------------------------
   static Future<void> schedule(ReminderHive r) async {
-    final id = _notificationIdFor(r);
-    await _notifier.cancel(id);
+    // Cancelamos cualquier notificación anterior con este ID
+    await _notifier.cancel(_id(r));
 
     final date = DateTime.tryParse(r.dateIso);
     if (date == null) return;
+
+    // No programar si ya es pasado (por seguridad extra)
+    if (date.isBefore(DateTime.now())) return;
 
     final model = Reminder(
       id: r.id,
       title: r.title,
       dateTime: date,
-      description: r.tag.isEmpty ? null : r.tag,
+      description: r.tag.isNotEmpty ? r.tag : null,
       isAuto: r.isAuto,
     );
 
-    await _notifier.scheduleReminderNotification(model);
+    // Usa la API unificada del NotificationService
+    await _notifier.scheduleReminder(model);
   }
 
+  // -------------------------------------------------------------
+  // PROGRAMAR VARIOS RECORDATORIOS
+  // -------------------------------------------------------------
   static Future<void> scheduleAll(List<ReminderHive> list) async {
     for (final r in list) {
       await schedule(r);
     }
   }
 
-  /// Cancela la notificación asociada a un recordatorio específico.
+  // -------------------------------------------------------------
+  // CANCELAR
+  // -------------------------------------------------------------
   static Future<void> cancel(ReminderHive r) async {
-    final id = _notificationIdFor(r);
-    await _notifier.cancel(id);
+    await _notifier.cancel(_id(r));
   }
 
-  /// Cancela la notificación a partir del ID lógico (string) del recordatorio.
-  static Future<void> cancelById(String reminderId) async {
-    final id = _notificationIdForId(reminderId);
-    await _notifier.cancel(id);
+  static Future<void> cancelById(String id) async {
+    await _notifier.cancel(_idFromString(id));
   }
 
-  /// Cancela todas las notificaciones asociadas a una lista de recordatorios.
   static Future<void> cancelAllFor(List<ReminderHive> list) async {
     for (final r in list) {
       await cancel(r);

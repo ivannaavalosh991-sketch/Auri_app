@@ -6,7 +6,7 @@ import 'widgets/survey_section.dart';
 import 'widgets/survey_text_field.dart';
 import 'widgets/survey_multi_text_field.dart';
 import 'widgets/survey_switch.dart';
-import 'package:auri_app/pages/survey/widgets/survey_time_picker.dart';
+import 'widgets/survey_time_picker.dart';
 import 'models/survey_models.dart';
 
 class SurveyScreen extends StatefulWidget {
@@ -27,9 +27,6 @@ class _SurveyScreenState extends State<SurveyScreen> {
 
   final int totalPages = 5;
 
-  // -------------------------------------------------------
-  // PARSE TIME (para transformar "08:30" → TimeOfDay)
-  // -------------------------------------------------------
   TimeOfDay _parseTime(String text) {
     try {
       final parts = text.split(":");
@@ -238,7 +235,6 @@ class _SurveyScreenState extends State<SurveyScreen> {
         SurveySection(
           title: "Rutina Diaria",
           children: [
-            // WAKE UP TIME
             Text(
               "¿A qué hora te despiertas?",
               style: const TextStyle(fontSize: 16),
@@ -253,7 +249,6 @@ class _SurveyScreenState extends State<SurveyScreen> {
             ),
             const SizedBox(height: 20),
 
-            // SLEEP TIME
             Text("¿A qué hora duermes?", style: const TextStyle(fontSize: 16)),
             const SizedBox(height: 8),
             AuriTimePicker(
@@ -265,7 +260,6 @@ class _SurveyScreenState extends State<SurveyScreen> {
             ),
             const SizedBox(height: 20),
 
-            // CLASES
             SurveySwitch(
               text: "¿Tienes clases?",
               value: controller.hasClasses,
@@ -275,9 +269,9 @@ class _SurveyScreenState extends State<SurveyScreen> {
               SurveyMultiTextField(
                 label: "Clases (una por línea)",
                 controller: controller.classesInfo,
+                hint: "Ej. Lunes 08:00 - Cálculo",
               ),
 
-            // EXAMENES
             SurveySwitch(
               text: "¿Tienes exámenes?",
               value: controller.hasExams,
@@ -287,6 +281,7 @@ class _SurveyScreenState extends State<SurveyScreen> {
               SurveyMultiTextField(
                 label: "Exámenes",
                 controller: controller.examsInfo,
+                hint: "Ej. 2025-03-10 09:00 - Parcial 1",
               ),
           ],
         ),
@@ -295,7 +290,7 @@ class _SurveyScreenState extends State<SurveyScreen> {
   }
 
   // -------------------------------------------------------------
-  // PAGOS (con suscripciones adicionales)
+  // PAGOS DUALES (básicos + suscripciones)
   // -------------------------------------------------------------
   Widget _pagePagos() {
     final cs = Theme.of(context).colorScheme;
@@ -315,69 +310,49 @@ class _SurveyScreenState extends State<SurveyScreen> {
 
             if (controller.wantsPaymentReminders) ...[
               const SizedBox(height: 10),
+              Text(
+                "Servicios básicos",
+                style: TextStyle(
+                  fontSize: 16,
+                  color: cs.onSurface.withOpacity(0.9),
+                ),
+              ),
+              const SizedBox(height: 6),
 
-              SurveyTextField(
-                label: "Pago del agua (día del mes)",
-                controller: controller.waterPayment,
-              ),
-              SurveyTextField(
-                label: "Pago de la luz (día del mes)",
-                controller: controller.electricPayment,
-              ),
-              SurveyTextField(
-                label: "Pago del internet (día del mes)",
-                controller: controller.internetPayment,
-              ),
-              SurveyTextField(
-                label: "Pago del teléfono (día del mes)",
-                controller: controller.phonePayment,
-              ),
-              SurveyTextField(
-                label: "Pago de la renta (día del mes)",
-                controller: controller.rentPayment,
-              ),
-
-              const SizedBox(height: 20),
-              const Text(
-                "Pagos adicionales (suscripciones, gimnasio, etc.)",
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 8),
-
-              if (controller.extraPayments.isEmpty)
+              if (controller.basicPayments.isEmpty)
                 Text(
-                  "Añade aquí servicios como Netflix, Crunchyroll, Spotify...",
+                  "Agrega tus pagos básicos como agua, luz, internet...",
                   style: TextStyle(
                     fontSize: 14,
                     color: cs.onSurface.withOpacity(0.7),
                   ),
                 ),
 
-              ...controller.extraPayments.asMap().entries.map((entry) {
+              ...controller.basicPayments.asMap().entries.map((entry) {
                 final index = entry.key;
-                final item = entry.value;
+                final p = entry.value;
 
                 return Container(
-                  margin: const EdgeInsets.only(top: 8),
-                  padding: const EdgeInsets.all(12),
+                  margin: const EdgeInsets.only(top: 6),
+                  padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(14),
                     border: Border.all(color: cs.primary.withOpacity(0.4)),
                   ),
                   child: Row(
                     children: [
                       Expanded(
                         child: Text(
-                          "${item.name} – día ${item.day}",
+                          "${p.name} — día ${p.day}",
                           style: const TextStyle(fontSize: 15),
                         ),
                       ),
                       IconButton(
                         icon: Icon(Icons.delete, color: cs.error),
                         onPressed: () {
-                          setState(() {
-                            controller.extraPayments.removeAt(index);
-                          });
+                          setState(
+                            () => controller.basicPayments.removeAt(index),
+                          );
                         },
                       ),
                     ],
@@ -386,11 +361,68 @@ class _SurveyScreenState extends State<SurveyScreen> {
               }),
 
               const SizedBox(height: 10),
-
               OutlinedButton.icon(
-                onPressed: _showAddExtraPaymentDialog,
+                onPressed: () => _showAddPaymentDialog(isBasic: true),
                 icon: const Icon(Icons.add),
-                label: const Text("Añadir pago adicional"),
+                label: const Text("Añadir pago básico"),
+              ),
+
+              const SizedBox(height: 20),
+              Text(
+                "Suscripciones y otros",
+                style: TextStyle(
+                  fontSize: 16,
+                  color: cs.onSurface.withOpacity(0.9),
+                ),
+              ),
+              const SizedBox(height: 6),
+
+              if (controller.extraPayments.isEmpty)
+                Text(
+                  "Ej. Netflix, Spotify, gimnasio...",
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: cs.onSurface.withOpacity(0.7),
+                  ),
+                ),
+
+              ...controller.extraPayments.asMap().entries.map((entry) {
+                final index = entry.key;
+                final p = entry.value;
+
+                return Container(
+                  margin: const EdgeInsets.only(top: 6),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: cs.primary.withOpacity(0.4)),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          "${p.name} — día ${p.day}",
+                          style: const TextStyle(fontSize: 15),
+                        ),
+                      ),
+                      IconButton(
+                        icon: Icon(Icons.delete, color: cs.error),
+                        onPressed: () {
+                          setState(
+                            () => controller.extraPayments.removeAt(index),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                );
+              }),
+
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: () => _showAddPaymentDialog(isBasic: false),
+                icon: const Icon(Icons.add),
+                label: const Text("Añadir suscripción / otro"),
               ),
             ],
           ],
@@ -399,30 +431,26 @@ class _SurveyScreenState extends State<SurveyScreen> {
     );
   }
 
-  void _showAddExtraPaymentDialog() {
+  void _showAddPaymentDialog({required bool isBasic}) {
     final nameCtrl = TextEditingController();
     final dayCtrl = TextEditingController();
 
     showDialog(
       context: context,
-      builder: (context) {
+      builder: (_) {
         return AlertDialog(
-          title: const Text("Añadir pago adicional"),
+          title: Text(isBasic ? "Añadir pago básico" : "Añadir suscripción"),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
                 controller: nameCtrl,
-                decoration: const InputDecoration(
-                  labelText: "Nombre (Ej: Netflix, gimnasio...)",
-                ),
+                decoration: const InputDecoration(labelText: "Nombre"),
               ),
               TextField(
                 controller: dayCtrl,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: "Día de cobro (1-31)",
-                ),
+                decoration: const InputDecoration(labelText: "Día del mes"),
               ),
             ],
           ),
@@ -433,18 +461,23 @@ class _SurveyScreenState extends State<SurveyScreen> {
             ),
             ElevatedButton(
               onPressed: () {
-                if (nameCtrl.text.trim().isEmpty) return;
-                final d = int.tryParse(dayCtrl.text) ?? 1;
-                final day = d.clamp(1, 31);
+                final name = nameCtrl.text.trim();
+                final day = int.tryParse(dayCtrl.text.trim()) ?? 1;
+
+                if (name.isEmpty) return;
 
                 setState(() {
-                  controller.extraPayments.add(
-                    ExtraPaymentEntry(
-                      name: nameCtrl.text.trim(),
-                      day: day,
-                      time: "09:00",
-                    ),
+                  final entry = PaymentEntry(
+                    name: name,
+                    day: day.clamp(1, 31),
+                    time: "09:00",
                   );
+
+                  if (isBasic) {
+                    controller.basicPayments.add(entry);
+                  } else {
+                    controller.extraPayments.add(entry);
+                  }
                 });
 
                 Navigator.pop(context);
@@ -458,7 +491,7 @@ class _SurveyScreenState extends State<SurveyScreen> {
   }
 
   // -------------------------------------------------------------
-  // CUMPLEAÑOS (con DatePicker y lista dinámica)
+  // CUMPLEAÑOS (con DatePicker + lista dinámica)
   // -------------------------------------------------------------
   Widget _pageCumples() {
     final cs = Theme.of(context).colorScheme;
@@ -551,12 +584,12 @@ class _SurveyScreenState extends State<SurveyScreen> {
             const SizedBox(height: 20),
             SurveySwitch(
               text: "¿Recordar cumpleaños de más personas?",
-              value: controller.wantsFriendBirthdays,
+              value: controller.wantsMoreBirthdays,
               onChanged: (v) =>
-                  setState(() => controller.wantsFriendBirthdays = v),
+                  setState(() => controller.wantsMoreBirthdays = v),
             ),
 
-            if (controller.wantsFriendBirthdays) ...[
+            if (controller.wantsMoreBirthdays) ...[
               const SizedBox(height: 12),
               const Text(
                 "Cumpleaños adicionales",
@@ -575,7 +608,7 @@ class _SurveyScreenState extends State<SurveyScreen> {
 
               ...controller.extraBirthdays.asMap().entries.map((entry) {
                 final index = entry.key;
-                final item = entry.value;
+                final b = entry.value;
 
                 return Container(
                   margin: const EdgeInsets.only(top: 8),
@@ -588,7 +621,9 @@ class _SurveyScreenState extends State<SurveyScreen> {
                     children: [
                       Expanded(
                         child: Text(
-                          "${item.name} – ${item.day.toString().padLeft(2, '0')}/${item.month.toString().padLeft(2, '0')}",
+                          "${b.name} – "
+                          "${b.day.toString().padLeft(2, '0')}/"
+                          "${b.month.toString().padLeft(2, '0')}",
                           style: const TextStyle(fontSize: 15),
                         ),
                       ),
@@ -656,7 +691,8 @@ class _SurveyScreenState extends State<SurveyScreen> {
                     child: Text(
                       pickedDate == null
                           ? "Seleccionar fecha"
-                          : "${pickedDate!.day.toString().padLeft(2, '0')}/${pickedDate!.month.toString().padLeft(2, '0')}",
+                          : "${pickedDate!.day.toString().padLeft(2, '0')}/"
+                                "${pickedDate!.month.toString().padLeft(2, '0')}",
                     ),
                   ),
                 ],
@@ -674,7 +710,7 @@ class _SurveyScreenState extends State<SurveyScreen> {
 
                     setState(() {
                       controller.extraBirthdays.add(
-                        ExtraBirthdayEntry(
+                        BirthdayEntry(
                           name: nameCtrl.text.trim(),
                           day: pickedDate!.day,
                           month: pickedDate!.month,
@@ -704,7 +740,7 @@ class _SurveyScreenState extends State<SurveyScreen> {
             SurveyTextField(
               label: "¿Cuánta anticipación prefieres?",
               controller: controller.reminderAdvance,
-              hint: "Ej. 1 día antes",
+              hint: "Ej. 1 (días antes)",
             ),
 
             SurveySwitch(

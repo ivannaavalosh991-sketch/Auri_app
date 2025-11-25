@@ -1,10 +1,13 @@
 // lib/services/notification_service.dart
 
 import 'dart:async';
+import 'dart:io' show Platform;
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
+
 import 'package:auri_app/models/reminder_model.dart';
 
 class NotificationService {
@@ -20,14 +23,15 @@ class NotificationService {
   static const String androidChannelDesc =
       'Recordatorios automáticos y manuales de Auri';
 
+  bool _initialized = false;
+
   // ============================================================
-  // INIT
+  // INIT PÚBLICO (idempotente)
   // ============================================================
   Future<void> init() async {
-    tz.initializeTimeZones();
+    if (_initialized) return;
 
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
-
     const iosInit = DarwinInitializationSettings();
 
     final initSettings = InitializationSettings(
@@ -35,29 +39,62 @@ class NotificationService {
       iOS: iosInit,
     );
 
-    await flutterLocalNotificationsPlugin.initialize(initSettings);
+    await flutterLocalNotificationsPlugin.initialize(
+      initSettings,
+      onDidReceiveNotificationResponse: (details) {
+        debugPrint("🔔 Notificación pulsada: ${details.payload}");
+      },
+    );
 
     await _createAndroidChannel();
     await _requestPermissions();
+
+    _initialized = true;
+    debugPrint("🔔 NotificationService inicializado");
+  }
+
+  Future<void> _ensureInitialized() async {
+    if (!_initialized) {
+      await init();
+    }
   }
 
   // ============================================================
-  // PERMISSIONS
+  // PERMISOS (FCM + locales, Android/iOS)
   // ============================================================
   Future<void> _requestPermissions() async {
-    // Firebase Messaging (Android 13+ / iOS)
+    // 1) Permiso de notificaciones para FCM (iOS/Android)
     try {
       await FirebaseMessaging.instance.requestPermission();
-    } catch (_) {}
+    } catch (e) {
+      debugPrint("⚠️ Error pidiendo permiso FCM: $e");
+    }
 
-    // Local Notifications - iOS only
+    // 2) Android 13+ → POST_NOTIFICATIONS (local + push)
     try {
-      final ios = flutterLocalNotificationsPlugin
-          .resolvePlatformSpecificImplementation<
-            IOSFlutterLocalNotificationsPlugin
-          >();
-      await ios?.requestPermissions(alert: true, badge: true, sound: true);
-    } catch (_) {}
+      if (Platform.isAndroid) {
+        final android = flutterLocalNotificationsPlugin
+            .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin
+            >();
+        await android?.requestNotificationsPermission();
+      }
+    } catch (e) {
+      debugPrint("⚠️ Error pidiendo permiso local (Android): $e");
+    }
+
+    // 3) iOS → permisos locales
+    try {
+      if (Platform.isIOS) {
+        final ios = flutterLocalNotificationsPlugin
+            .resolvePlatformSpecificImplementation<
+              IOSFlutterLocalNotificationsPlugin
+            >();
+        await ios?.requestPermissions(alert: true, badge: true, sound: true);
+      }
+    } catch (e) {
+      debugPrint("⚠️ Error pidiendo permiso local (iOS): $e");
+    }
   }
 
   // ============================================================
@@ -77,16 +114,17 @@ class NotificationService {
         importance: Importance.max,
       );
       await androidPlugin.createNotificationChannel(channel);
+      debugPrint("📡 Canal de notificaciones creado: $androidChannelId");
     }
   }
 
   // ============================================================
-  // TEST NOTIFICATION
+  // HELPERS
   // ============================================================
-  Future<void> showTestNotification() async {
-    final id = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+  int _internalIdFromString(String id) => id.hashCode & 0x7fffffff;
 
-    final details = NotificationDetails(
+  NotificationDetails _buildDetails() {
+    return const NotificationDetails(
       android: AndroidNotificationDetails(
         androidChannelId,
         androidChannelName,
@@ -94,8 +132,30 @@ class NotificationService {
         importance: Importance.max,
         priority: Priority.high,
       ),
-      iOS: const DarwinNotificationDetails(),
+      iOS: DarwinNotificationDetails(),
     );
+  }
+
+  tz.TZDateTime _normalizeDate(DateTime dateTime) {
+    final now = tz.TZDateTime.now(tz.local);
+    var target = tz.TZDateTime.from(dateTime, tz.local);
+
+    // Si por algún motivo ya pasó, lo muevo unos segundos al futuro
+    if (target.isBefore(now)) {
+      target = now.add(const Duration(seconds: 5));
+    }
+
+    return target;
+  }
+
+  // ============================================================
+  // TEST NOTIFICATION
+  // ============================================================
+  Future<void> showTestNotification() async {
+    await _ensureInitialized();
+
+    final id = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final details = _buildDetails();
 
     await flutterLocalNotificationsPlugin.show(
       id,
@@ -106,22 +166,19 @@ class NotificationService {
   }
 
   // ============================================================
-  // SCHEDULE: Reminder Model
+  // SCHEDULE: Reminder (manual o auto)
   // ============================================================
-  Future<void> scheduleReminderNotification(Reminder reminder) async {
-    final details = NotificationDetails(
-      android: AndroidNotificationDetails(
-        androidChannelId,
-        androidChannelName,
-        channelDescription: androidChannelDesc,
-        importance: Importance.max,
-        priority: Priority.high,
-      ),
-      iOS: const DarwinNotificationDetails(),
-    );
+  Future<void> scheduleReminder(Reminder reminder) async {
+    await _ensureInitialized();
 
-    final tzDate = tz.TZDateTime.from(reminder.dateTime, tz.local);
-    final id = reminder.id.hashCode & 0x7fffffff;
+    final details = _buildDetails();
+    final tzDate = _normalizeDate(reminder.dateTime);
+    final id = _internalIdFromString(reminder.id);
+
+    debugPrint(
+      "⏰ Programando reminder [${reminder.id}] "
+      "'${reminder.title}' para $tzDate (local=${tz.local.name})",
+    );
 
     await flutterLocalNotificationsPlugin.zonedSchedule(
       id,
@@ -132,14 +189,23 @@ class NotificationService {
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
+      payload: reminder.id,
     );
   }
 
+  /// Alias para mantener compatibilidad con código antiguo
+  Future<void> scheduleReminderNotification(Reminder r) => scheduleReminder(r);
+
+  /// Alias extra por si en algún punto lo usas para manuales
+  Future<void> scheduleManualReminder(Reminder r) => scheduleReminder(r);
+
   // ============================================================
-  // SCHEDULE FROM JSON (AutoReminderService)
+  // SCHEDULE from JSON (AutoReminderService u otros)
   // ============================================================
   Future<void> scheduleFromJson(Map<String, dynamic> jsonData) async {
-    final id =
+    await _ensureInitialized();
+
+    final idStr =
         jsonData['id']?.toString() ??
         DateTime.now().millisecondsSinceEpoch.toString();
 
@@ -149,205 +215,67 @@ class NotificationService {
     final body = jsonData['body'];
 
     if (dateString == null) return;
+    final parsed = DateTime.tryParse(dateString);
+    if (parsed == null) return;
 
-    final date = DateTime.tryParse(dateString);
-    if (date == null) return;
+    final details = _buildDetails();
+    final internalId = _internalIdFromString(idStr);
 
-    final details = NotificationDetails(
-      android: AndroidNotificationDetails(
-        androidChannelId,
-        androidChannelName,
-        channelDescription: androidChannelDesc,
-        importance: Importance.max,
-        priority: Priority.high,
-      ),
-      iOS: const DarwinNotificationDetails(),
+    tz.TZDateTime base = _normalizeDate(parsed);
+    DateTimeComponents? match;
+
+    switch (repeats) {
+      case 'daily':
+        match = DateTimeComponents.time;
+        break;
+      case 'weekly':
+        match = DateTimeComponents.dayOfWeekAndTime;
+        break;
+      case 'monthly':
+        match = DateTimeComponents.dayOfMonthAndTime;
+        break;
+      case 'yearly':
+        match = DateTimeComponents.dateAndTime;
+        break;
+      default:
+        match = null;
+    }
+
+    debugPrint(
+      "📆 scheduleFromJson: id=$idStr title=$title date=$base repeats=$repeats",
     );
 
-    final internalId = id.hashCode & 0x7fffffff;
-
-    if (repeats == 'daily') {
-      await flutterLocalNotificationsPlugin.zonedSchedule(
-        internalId,
-        title,
-        body,
-        _nextDaily(date),
-        details,
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        matchDateTimeComponents: DateTimeComponents.time,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
-      );
-      return;
-    }
-
-    if (repeats == 'weekly') {
-      await flutterLocalNotificationsPlugin.zonedSchedule(
-        internalId,
-        title,
-        body,
-        _nextWeekly(date),
-        details,
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
-      );
-      return;
-    }
-
-    if (repeats == 'monthly') {
-      await flutterLocalNotificationsPlugin.zonedSchedule(
-        internalId,
-        title,
-        body,
-        _nextMonthly(date),
-        details,
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        matchDateTimeComponents: DateTimeComponents.dayOfMonthAndTime,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
-      );
-      return;
-    }
-
-    if (repeats == 'yearly') {
-      await flutterLocalNotificationsPlugin.zonedSchedule(
-        internalId,
-        title,
-        body,
-        _nextYearly(date),
-        details,
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        matchDateTimeComponents: DateTimeComponents.dateAndTime,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
-      );
-      return;
-    }
-
-    // No repeat
     await flutterLocalNotificationsPlugin.zonedSchedule(
       internalId,
       title,
       body,
-      tz.TZDateTime.from(date, tz.local),
+      base,
       details,
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      matchDateTimeComponents: match,
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
+      payload: idStr,
     );
-  }
-
-  // ============================================================
-  // REPEAT HELPERS
-  // ============================================================
-  tz.TZDateTime _nextDaily(DateTime d) {
-    final now = tz.TZDateTime.now(tz.local);
-    var date = tz.TZDateTime(
-      tz.local,
-      now.year,
-      now.month,
-      now.day,
-      d.hour,
-      d.minute,
-    );
-    if (date.isBefore(now)) date = date.add(const Duration(days: 1));
-    return date;
-  }
-
-  tz.TZDateTime _nextWeekly(DateTime d) {
-    final now = tz.TZDateTime.now(tz.local);
-    var date = tz.TZDateTime(
-      tz.local,
-      now.year,
-      now.month,
-      now.day,
-      d.hour,
-      d.minute,
-    );
-    while (date.weekday != d.weekday || date.isBefore(now)) {
-      date = date.add(const Duration(days: 1));
-    }
-    return date;
-  }
-
-  tz.TZDateTime _nextMonthly(DateTime d) {
-    final now = tz.TZDateTime.now(tz.local);
-    int y = now.year;
-    int m = now.month;
-    int day = d.day;
-
-    try {
-      var date = tz.TZDateTime(tz.local, y, m, day, d.hour, d.minute);
-      if (date.isBefore(now)) {
-        date = tz.TZDateTime(tz.local, y, m + 1, day, d.hour, d.minute);
-      }
-      return date;
-    } catch (_) {
-      final last = DateTime(y, m + 1, 0).day;
-      return tz.TZDateTime(tz.local, y, m, last, d.hour, d.minute);
-    }
-  }
-
-  tz.TZDateTime _nextYearly(DateTime d) {
-    final now = tz.TZDateTime.now(tz.local);
-    var date = tz.TZDateTime(
-      tz.local,
-      now.year,
-      d.month,
-      d.day,
-      d.hour,
-      d.minute,
-    );
-    if (date.isBefore(now)) {
-      date = tz.TZDateTime(
-        tz.local,
-        now.year + 1,
-        d.month,
-        d.day,
-        d.hour,
-        d.minute,
-      );
-    }
-    return date;
   }
 
   // ============================================================
   // CANCEL
   // ============================================================
   Future<void> cancel(int id) async {
+    await _ensureInitialized();
     await flutterLocalNotificationsPlugin.cancel(id);
+    debugPrint("🗑️ Cancelada notificación con id interno $id");
   }
 
   Future<void> cancelAll() async {
+    await _ensureInitialized();
     await flutterLocalNotificationsPlugin.cancelAll();
+    debugPrint("🧹 Todas las notificaciones locales canceladas");
   }
 
-  Future<void> scheduleManualReminder(Reminder r) async {
-    final details = NotificationDetails(
-      android: AndroidNotificationDetails(
-        androidChannelId,
-        androidChannelName,
-        channelDescription: androidChannelDesc,
-        importance: Importance.max,
-        priority: Priority.high,
-      ),
-      iOS: const DarwinNotificationDetails(),
-    );
-
-    final id = r.id.hashCode & 0x7fffffff;
-    final tzDate = tz.TZDateTime.from(r.dateTime, tz.local);
-
-    await flutterLocalNotificationsPlugin.zonedSchedule(
-      id,
-      r.title,
-      r.description,
-      tzDate,
-      details,
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation:
-          UILocalNotificationDateInterpretation.absoluteTime,
-    );
+  Future<void> cancelByStringId(String id) async {
+    final internalId = _internalIdFromString(id);
+    await cancel(internalId);
   }
 }

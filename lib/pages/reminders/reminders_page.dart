@@ -1,9 +1,12 @@
 // lib/pages/reminders/reminders_page.dart
+
 import 'package:flutter/material.dart';
-import 'package:hive/hive.dart';
 import 'package:uuid/uuid.dart';
 
+import 'package:auri_app/controllers/reminder/reminder_controller.dart';
 import 'package:auri_app/models/reminder_hive.dart';
+import 'package:auri_app/models/reminder_model.dart';
+import 'package:auri_app/services/notification_service.dart';
 
 class RemindersPage extends StatefulWidget {
   const RemindersPage({super.key});
@@ -13,33 +16,61 @@ class RemindersPage extends StatefulWidget {
 }
 
 class _RemindersPageState extends State<RemindersPage> {
-  late final Box<ReminderHive> _box;
-  final Uuid _uuid = const Uuid();
-
-  List<ReminderHive> _reminders = [];
+  final _uuid = const Uuid();
+  List<ReminderHive> reminders = [];
+  bool loading = true;
 
   @override
   void initState() {
     super.initState();
-    _box = Hive.box<ReminderHive>('reminders');
-    _loadReminders();
+    _load();
   }
 
-  void _loadReminders() {
-    _reminders = _box.values.cast<ReminderHive>().toList();
-
-    _reminders.sort((a, b) {
-      final da = DateTime.tryParse(a.dateIso) ?? DateTime.now();
-      final db = DateTime.tryParse(b.dateIso) ?? DateTime.now();
-      return da.compareTo(db);
+  Future<void> _load() async {
+    final list = await ReminderController.getAll();
+    setState(() {
+      reminders = list;
+      loading = false;
     });
-
-    setState(() {});
   }
 
-  // ---------------------------------------------------
-  // ADD REMINDER (manual)
-  // ---------------------------------------------------
+  // -------------------------------------------------------------
+  //   COLORES SEGÚN CATEGORÍA
+  // -------------------------------------------------------------
+  Color _color(ReminderHive r) {
+    if (r.tag == "payment") return const Color(0xFF4A90E2);
+    if (r.tag == "birthday") return const Color(0xFFAC6CFF);
+    if (r.isAuto) return const Color(0xFF4CAF50);
+    return const Color(0xFFFF9800);
+  }
+
+  IconData _icon(ReminderHive r) {
+    if (r.tag == "payment") return Icons.receipt_long;
+    if (r.tag == "birthday") return Icons.cake;
+    if (r.isAuto) return Icons.auto_awesome;
+    return Icons.alarm;
+  }
+
+  // -------------------------------------------------------------
+  //   AGRUPAR POR FECHA
+  // -------------------------------------------------------------
+  Map<String, List<ReminderHive>> _groupByDate() {
+    final out = <String, List<ReminderHive>>{};
+
+    for (final r in reminders) {
+      final d = DateTime.parse(r.dateIso);
+      final key = "${d.year}-${d.month}-${d.day}";
+
+      out.putIfAbsent(key, () => []);
+      out[key]!.add(r);
+    }
+
+    return out;
+  }
+
+  // -------------------------------------------------------------
+  //   NUEVO RECORDATORIO MANUAL
+  // -------------------------------------------------------------
   void _showAddReminderModal() {
     final titleCtrl = TextEditingController();
     DateTime selected = DateTime.now().add(const Duration(minutes: 5));
@@ -49,7 +80,7 @@ class _RemindersPageState extends State<RemindersPage> {
       isScrollControlled: true,
       backgroundColor: Theme.of(context).cardColor,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
       ),
       builder: (context) {
         return Padding(
@@ -66,7 +97,7 @@ class _RemindersPageState extends State<RemindersPage> {
                 "Nuevo Recordatorio",
                 style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
               TextField(
                 controller: titleCtrl,
                 decoration: const InputDecoration(
@@ -76,7 +107,7 @@ class _RemindersPageState extends State<RemindersPage> {
               ),
               const SizedBox(height: 20),
               StatefulBuilder(
-                builder: (_, setModal) {
+                builder: (_, setStateModal) {
                   return Row(
                     children: [
                       Expanded(
@@ -106,7 +137,7 @@ class _RemindersPageState extends State<RemindersPage> {
                             );
 
                             if (t != null) {
-                              setModal(() {
+                              setStateModal(() {
                                 selected = DateTime(
                                   d.year,
                                   d.month,
@@ -124,27 +155,42 @@ class _RemindersPageState extends State<RemindersPage> {
                   );
                 },
               ),
-              const SizedBox(height: 30),
+              const SizedBox(height: 28),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
                   child: const Text("Guardar"),
-                  onPressed: () {
+                  onPressed: () async {
                     if (titleCtrl.text.trim().isEmpty) return;
 
-                    final r = ReminderHive(
-                      id: _uuid.v4(),
+                    final id = _uuid.v4();
+
+                    final hiveReminder = ReminderHive(
+                      id: id,
                       title: titleCtrl.text.trim(),
                       dateIso: selected.toIso8601String(),
                       repeats: "once",
-                      tag: "MANUAL",
+                      tag: "",
                       isAuto: false,
-                      jsonPayload: "",
+                      jsonPayload: "{}",
                     );
 
-                    _box.put(r.id, r);
-                    Navigator.pop(context);
-                    _loadReminders();
+                    // 1) Guardar en Hive
+                    await ReminderController.save(hiveReminder);
+
+                    // 2) Programar notificación
+                    final reminder = Reminder(
+                      id: id,
+                      title: hiveReminder.title,
+                      description: "",
+                      dateTime: selected,
+                    );
+                    await NotificationService().scheduleReminder(reminder);
+
+                    if (mounted) {
+                      Navigator.pop(context);
+                      _load();
+                    }
                   },
                 ),
               ),
@@ -155,91 +201,115 @@ class _RemindersPageState extends State<RemindersPage> {
     );
   }
 
-  // ---------------------------------------------------
-  // Delete reminder
-  // ---------------------------------------------------
+  // -------------------------------------------------------------
+  //   DELETE
+  // -------------------------------------------------------------
   void _delete(ReminderHive r) async {
-    await _box.delete(r.id);
-    _loadReminders();
+    // 1) Cancelar notificación asociada
+    await NotificationService().cancelByStringId(r.id);
+
+    // 2) Borrar de Hive
+    await ReminderController.delete(r.id);
+    _load();
   }
 
-  // ---------------------------------------------------
-  // UI
-  // ---------------------------------------------------
+  // -------------------------------------------------------------
+  //   UI FINAL
+  // -------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    if (loading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    final grouped = _groupByDate();
+    final keys = grouped.keys.toList()..sort();
+
     return Scaffold(
-      appBar: AppBar(title: const Text("Recordatorios")),
-      body: _reminders.isEmpty
-          ? const Center(
-              child: Text(
-                "No tienes recordatorios todavía ✨",
-                textAlign: TextAlign.center,
-              ),
-            )
-          : ListView.builder(
-              padding: const EdgeInsets.all(15),
-              itemCount: _reminders.length,
-              itemBuilder: (_, i) {
-                final r = _reminders[i];
-                final dt = DateTime.tryParse(r.dateIso);
-
-                final formatted = dt != null
-                    ? "${dt.day.toString().padLeft(2, '0')}/"
-                          "${dt.month.toString().padLeft(2, '0')} "
-                          "${dt.hour.toString().padLeft(2, '0')}:"
-                          "${dt.minute.toString().padLeft(2, '0')}"
-                    : "Fecha inválida";
-
-                final isSoon = r.title.toLowerCase().contains('pronto');
-
-                return Dismissible(
-                  key: Key(r.id),
-                  background: Container(
-                    color: Colors.red,
-                    padding: const EdgeInsets.only(right: 20),
-                    alignment: Alignment.centerRight,
-                    child: const Icon(Icons.delete, color: Colors.white),
-                  ),
-                  direction: DismissDirection.endToStart,
-                  onDismissed: (_) => _delete(r),
-                  child: Card(
-                    margin: const EdgeInsets.symmetric(vertical: 8),
-                    child: ListTile(
-                      leading: Icon(
-                        r.isAuto ? Icons.auto_awesome : Icons.circle,
-                        color: r.isAuto
-                            ? Colors.purpleAccent
-                            : Colors.blueAccent,
-                      ),
-                      title: Text(
-                        r.title,
-                        style: TextStyle(
-                          fontWeight: isSoon
-                              ? FontWeight.bold
-                              : FontWeight.w500,
-                        ),
-                      ),
-                      subtitle: Text("Vence: $formatted"),
-                      trailing: r.isAuto
-                          ? const Padding(
-                              padding: EdgeInsets.only(left: 8.0),
-                              child: Icon(
-                                Icons.bolt,
-                                size: 18,
-                                color: Colors.amber,
-                              ),
-                            )
-                          : null,
-                    ),
-                  ),
-                );
-              },
-            ),
+      backgroundColor: cs.background,
+      appBar: AppBar(title: const Text("Recordatorios"), elevation: 0),
       floatingActionButton: FloatingActionButton(
         onPressed: _showAddReminderModal,
         child: const Icon(Icons.add),
       ),
+      body: reminders.isEmpty
+          ? const Center(
+              child: Text(
+                "No tienes recordatorios todavía ✨",
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 17),
+              ),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: keys.length,
+              itemBuilder: (_, i) {
+                final key = keys[i];
+                final items = grouped[key]!;
+                final d = DateTime.parse(items.first.dateIso);
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      child: Text(
+                        "${d.day}/${d.month}/${d.year}",
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: cs.primary,
+                        ),
+                      ),
+                    ),
+                    ...items.map((r) {
+                      final color = _color(r);
+                      final icon = _icon(r);
+                      final date = DateTime.parse(r.dateIso);
+
+                      return Dismissible(
+                        key: Key(r.id),
+                        background: Container(
+                          color: Colors.redAccent,
+                          alignment: Alignment.centerRight,
+                          padding: const EdgeInsets.only(right: 20),
+                          child: const Icon(Icons.delete, color: Colors.white),
+                        ),
+                        direction: DismissDirection.endToStart,
+                        onDismissed: (_) => _delete(r),
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          decoration: BoxDecoration(
+                            color: color.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(color: color.withOpacity(0.4)),
+                          ),
+                          child: ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: color,
+                              child: Icon(icon, color: Colors.white),
+                            ),
+                            title: Text(
+                              r.title,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            subtitle: Text(
+                              "${date.hour.toString().padLeft(2, '0')}:"
+                              "${date.minute.toString().padLeft(2, '0')}",
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                  ],
+                );
+              },
+            ),
     );
   }
 }

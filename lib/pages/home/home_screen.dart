@@ -1,13 +1,17 @@
+// lib/pages/home/home_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:hive/hive.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import 'package:auri_app/models/reminder_hive.dart';
 import 'package:auri_app/widgets/auri_visual.dart';
 import 'package:auri_app/widgets/weather_display.dart';
 import 'package:auri_app/widgets/outfit_recommendation.dart';
 import 'package:auri_app/services/weather_service.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:auri_app/routes/app_routes.dart';
 import 'package:auri_app/models/weather_model.dart';
+import 'package:auri_app/routes/app_routes.dart';
+import 'package:auri_app/services/cleanup_service_v7_hive.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -68,24 +72,66 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {});
   }
 
-  Future<void> _loadReminders() async {
-    final box = Hive.box('reminders');
+  /// Agrupa recordatorios por "baseTitle" (sin el prefijo "Pronto: ")
+  /// y se queda con el que ocurra primero. Así evitamos que en el HOME
+  /// se vean duplicados tipo:
+  ///   - "Pronto: Pago Netflix"
+  ///   - "Pago Netflix"
+  /// a la vez.
+  List<ReminderHive> _dedupForHome(List<ReminderHive> list) {
+    final map = <String, ReminderHive>{};
 
+    for (final r in list) {
+      final baseTitle = r.title.replaceFirst("Pronto: ", "").trim();
+
+      DateTime? date;
+      try {
+        date = DateTime.parse(r.dateIso);
+      } catch (_) {
+        continue;
+      }
+
+      if (!map.containsKey(baseTitle)) {
+        map[baseTitle] = r;
+      } else {
+        final existing = map[baseTitle]!;
+        final existingDate = DateTime.parse(existing.dateIso);
+
+        // Nos quedamos con el más cercano en el tiempo (el más próximo)
+        if (date.isBefore(existingDate)) {
+          map[baseTitle] = r;
+        }
+      }
+    }
+
+    return map.values.toList();
+  }
+
+  Future<void> _loadReminders() async {
+    final box = Hive.box<ReminderHive>('reminders');
     final all = box.values.cast<ReminderHive>().toList();
 
     final now = DateTime.now();
 
-    final upcoming =
-        all.where((r) {
-          final dt = DateTime.tryParse(r.dateIso);
-          return dt != null && dt.isAfter(now);
-        }).toList()..sort((a, b) {
-          final da = DateTime.parse(a.dateIso);
-          final db = DateTime.parse(b.dateIso);
-          return da.compareTo(db);
-        });
+    // Limpieza por si algo quedó desactualizado
+    final cleaned = CleanupServiceHiveV7.clean(all, now);
 
-    _upcoming = upcoming;
+    // Ventana de 7 días hacia adelante para el HOME
+    final horizon = now.add(const Duration(days: 7));
+
+    final filtered = cleaned.where((r) {
+      final dt = DateTime.tryParse(r.dateIso);
+      return dt != null && dt.isAfter(now) && dt.isBefore(horizon);
+    }).toList();
+
+    final deduped = _dedupForHome(filtered)
+      ..sort((a, b) {
+        final da = DateTime.parse(a.dateIso);
+        final db = DateTime.parse(b.dateIso);
+        return da.compareTo(db);
+      });
+
+    _upcoming = deduped;
 
     if (!mounted) return;
     setState(() {});
@@ -103,7 +149,7 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: const Icon(Icons.settings),
             onPressed: () async {
               await Navigator.pushNamed(context, AppRoutes.settings);
-              loadData();
+              await loadData();
             },
           ),
         ],
@@ -144,7 +190,7 @@ class _HomeScreenState extends State<HomeScreen> {
             if (_weather != null)
               OutfitRecommendationWidget(
                 temperature: _weather!.temperature,
-                condition: _weather!.condition, // ← Nuevo modelo
+                condition: _weather!.condition,
                 onTap: () {},
               ),
 
@@ -152,13 +198,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
             Row(
               children: [
-                Expanded(
+                const Expanded(
                   child: Text(
                     'Próximos Recordatorios',
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                 ),
                 TextButton.icon(
@@ -176,13 +219,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 padding: const EdgeInsets.all(30),
                 child: Center(
                   child: Text(
-                    "¡No tienes recordatorios pendientes! ✨",
+                    "¡No tienes recordatorios pendientes en los próximos días! ✨",
                     style: TextStyle(color: cs.onSurface.withOpacity(0.6)),
                   ),
                 ),
               )
             else
-              ..._upcoming.take(3).map((r) => _ReminderItem(r: r, cs: cs)),
+              ..._upcoming.map((r) => _ReminderItem(r: r, cs: cs)),
 
             const SizedBox(height: 40),
             Center(
@@ -214,7 +257,9 @@ class _ReminderItem extends StatelessWidget {
   Widget build(BuildContext context) {
     final date = DateTime.tryParse(r.dateIso);
     final formatted = date != null
-        ? "${date.day}/${date.month} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}"
+        ? "${date.day}/${date.month} "
+              "${date.hour.toString().padLeft(2, '0')}:"
+              "${date.minute.toString().padLeft(2, '0')}"
         : "Fecha inválida";
 
     return Card(

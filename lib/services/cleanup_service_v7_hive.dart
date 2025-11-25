@@ -3,10 +3,14 @@
 import 'package:auri_app/models/reminder_hive.dart';
 
 class CleanupServiceHiveV7 {
-  /// Limpieza profunda estilo V7.5 (portada del CleanupServiceV7 original).
+  /// Limpieza de recordatorios basada en la lógica V7 original.
+  /// - Elimina vencidos
+  /// - Evita duplicados exactos
+  /// - Normaliza títulos
+  /// - Elimina "Pronto" huérfanos
+  /// - Colapsa pagos y cumpleaños duplicados por mes/año
+  /// - Ordena por fecha
   static List<ReminderHive> clean(List<ReminderHive> input, DateTime now) {
-    final output = <ReminderHive>[];
-
     // -------------------------------------------------------
     // 1) eliminar vencidos
     // -------------------------------------------------------
@@ -21,19 +25,19 @@ class CleanupServiceHiveV7 {
     }).toList();
 
     // -------------------------------------------------------
-    // 2) evitar duplicados exactos (misma fecha + título)
+    // 2) evitar duplicados exactos (misma fecha + título + tag)
     // -------------------------------------------------------
     final byKey = <String, ReminderHive>{};
 
     for (final r in noPast) {
       final key = "${r.title.trim()}_${r.dateIso}_${r.tag}";
-      byKey[key] = r; // conserva el último
+      byKey[key] = r; // conserva el último con esa clave
     }
 
     final unique = byKey.values.toList();
 
     // -------------------------------------------------------
-    // 3) normalización (port de _normalize(original))
+    // 3) normalización de títulos
     // -------------------------------------------------------
     final normalized = <ReminderHive>[];
 
@@ -42,7 +46,7 @@ class CleanupServiceHiveV7 {
     }
 
     // -------------------------------------------------------
-    // 4) eliminar PRONTO incorrectos
+    // 4) eliminar PRONTO incorrectos (que no tengan evento principal)
     // -------------------------------------------------------
     normalized.removeWhere((r) {
       final titleLower = r.title.toLowerCase();
@@ -57,6 +61,9 @@ class CleanupServiceHiveV7 {
 
     // -------------------------------------------------------
     // 5) eliminar pagos generados dos veces (mismo mes)
+    //    Se mantiene:
+    //      - 1 "Pronto: Pago X" (si aplica)
+    //      - 1 "Pago X" por mes
     // -------------------------------------------------------
     final seenPayments = <String, ReminderHive>{};
 
@@ -66,7 +73,9 @@ class CleanupServiceHiveV7 {
       final d = _date(r);
       final key = "${r.title}_${d.year}_${d.month}";
 
-      if (seenPayments.containsKey(key)) return true;
+      if (seenPayments.containsKey(key)) {
+        return true; // ya vimos ese pago en ese mes
+      }
 
       seenPayments[key] = r;
       return false;
@@ -74,6 +83,7 @@ class CleanupServiceHiveV7 {
 
     // -------------------------------------------------------
     // 6) eliminar cumpleaños duplicados (mismo año)
+    //    Igual que pagos: se permite "Pronto:" + "Cumpleaños:"
     // -------------------------------------------------------
     final seenBirthdays = <String, ReminderHive>{};
 
@@ -83,14 +93,16 @@ class CleanupServiceHiveV7 {
       final d = _date(r);
       final key = "${r.title}_${d.year}";
 
-      if (seenBirthdays.containsKey(key)) return true;
+      if (seenBirthdays.containsKey(key)) {
+        return true;
+      }
 
       seenBirthdays[key] = r;
       return false;
     });
 
     // -------------------------------------------------------
-    // 7) ordenar por fecha
+    // 7) ordenar por fecha ascendente
     // -------------------------------------------------------
     normalized.sort((a, b) {
       return _date(a).compareTo(_date(b));
@@ -99,7 +111,10 @@ class CleanupServiceHiveV7 {
     return normalized;
   }
 
-  /// Normalización basada en _normalize del CleanupServiceV7
+  /// Normalización básica de títulos para evitar casos raros:
+  /// - "Pago Pago agua" → "Pago agua"
+  /// - "Cumpleaños pronto: Usuario" → "Pronto: Cumpleaños: Usuario"
+  /// - "Pronto: Pronto: X" → "Pronto: X"
   static ReminderHive _normalize(ReminderHive r) {
     String title = r.title.trim();
 
@@ -109,7 +124,7 @@ class CleanupServiceHiveV7 {
     // 2. Corregir “Cumpleaños pronto: Usuario”
     title = title.replaceAll("Cumpleaños pronto:", "Pronto: Cumpleaños:");
 
-    // 3. Normalizar “Pronto: Pronto”
+    // 3. Normalizar “Pronto: Pronto: X”
     if (title.startsWith("Pronto: Pronto")) {
       title = title.replaceFirst("Pronto: Pronto:", "Pronto:");
     }

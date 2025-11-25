@@ -1,22 +1,19 @@
 // lib/pages/survey/controller/survey_controller.dart
 
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/survey_models.dart';
 import '../storage/survey_storage.dart';
 
-// 💜 Auto recordatorios V7.5
 import 'package:auri_app/services/auto_reminder_service.dart';
 import 'package:auri_app/services/reminder_generator.dart';
-import 'package:auri_app/services/reminder_scheduler.dart';
-import 'package:auri_app/storage/reminder_storage.dart';
+import 'package:auri_app/controllers/reminder/reminder_controller.dart';
 
 class SurveyController {
-  //---------------------------------------------------------------------------
-  // TEXT FIELDS
-  //---------------------------------------------------------------------------
+  // ----------------------------------------------------------
+  // TEXT FIELDS BÁSICOS
+  // ----------------------------------------------------------
   final name = TextEditingController();
   final occupation = TextEditingController();
   final city = TextEditingController();
@@ -26,58 +23,67 @@ class SurveyController {
 
   final reminderAdvance = TextEditingController();
 
-  // cumpleaños del usuario (formato visual "dd/MM")
+  // Cumpleaños principales
   final userBirthday = TextEditingController();
+  final partnerBirthday = TextEditingController();
 
-  //---------------------------------------------------------------------------
-  // SWITCHES
-  //---------------------------------------------------------------------------
+  // ----------------------------------------------------------
+  // SWITCHES / FLAGS
+  // ----------------------------------------------------------
   bool wantsWeeklyAgenda = false;
 
   bool hasClasses = false;
   bool hasExams = false;
-  bool wantsPaymentReminders = false;
-
+  bool wantsPaymentReminders = true;
   bool hasPartner = false;
-  bool wantsFriendBirthdays = false;
+  bool wantsMoreBirthdays = false;
 
-  //---------------------------------------------------------------------------
-  // UI TEXT FIELDS (legacy)
-  //---------------------------------------------------------------------------
+  // ----------------------------------------------------------
+  // CAMPOS LEGACY MULTILÍNEA (clases / exámenes)
+  // ----------------------------------------------------------
   final classesInfo = TextEditingController();
   final examsInfo = TextEditingController();
 
-  final waterPayment = TextEditingController();
-  final electricPayment = TextEditingController();
-  final internetPayment = TextEditingController();
-  final phonePayment = TextEditingController();
-  final rentPayment = TextEditingController();
-
-  final partnerBirthday = TextEditingController();
-  final familyBirthdays = TextEditingController();
-  final friendBirthdays = TextEditingController();
-
-  //---------------------------------------------------------------------------
-  // STRUCTURED MODELS
-  //---------------------------------------------------------------------------
+  // ----------------------------------------------------------
+  // MODELOS ESTRUCTURADOS
+  // ----------------------------------------------------------
   List<ClassEntry> classes = [];
   List<ExamEntry> exams = [];
   List<ActivityEntry> activities = [];
-  List<PaymentEntry> payments = [];
-  List<BirthdayEntry> birthdays = [];
 
-  // NUEVO V2.0: pagos y cumpleaños extra (estructurados)
-  List<ExtraPaymentEntry> extraPayments = [];
-  List<ExtraBirthdayEntry> extraBirthdays = [];
+  List<PaymentEntry> basicPayments = [];
+  List<PaymentEntry> extraPayments = [];
+
+  List<BirthdayEntry> birthdays = [];
+  List<BirthdayEntry> extraBirthdays = [];
 
   bool loaded = false;
 
-  //---------------------------------------------------------------------------
+  // ----------------------------------------------------------
   // LOAD
-  //---------------------------------------------------------------------------
+  // ----------------------------------------------------------
   Future<void> load() async {
     final data = await SurveyStorage.loadSurvey();
+
     if (data == null) {
+      // Estado inicial por defecto
+      wakeUp.text = "08:00";
+      sleep.text = "23:00";
+      reminderAdvance.text = "1";
+
+      // Pagos básicos predefinidos (opción A)
+      basicPayments = [
+        PaymentEntry(name: "Agua", day: 5, time: "09:00"),
+        PaymentEntry(name: "Luz", day: 7, time: "09:00"),
+        PaymentEntry(name: "Internet", day: 10, time: "09:00"),
+        PaymentEntry(name: "Teléfono", day: 22, time: "09:00"),
+        PaymentEntry(name: "Renta", day: 1, time: "09:00"),
+      ];
+      extraPayments = [];
+
+      birthdays = [];
+      extraBirthdays = [];
+
       loaded = true;
       return;
     }
@@ -95,35 +101,67 @@ class SurveyController {
     reminderAdvance.text = data.preferences.reminderAdvance;
     wantsWeeklyAgenda = data.preferences.wantsWeeklyAgenda;
 
-    // MODELOS
+    // MODELOS BASE
     classes = data.classes;
     exams = data.exams;
-    payments = data.payments;
-    birthdays = data.birthdays;
     activities = data.activities;
-
-    // NUEVO: cargar estructuras extra (si existen)
+    basicPayments = data.basicPayments;
     extraPayments = data.extraPayments;
-    extraBirthdays = data.extraBirthdays;
+    birthdays = data.birthdays;
 
-    // SYNC UI FIELDS
+    // ESTADOS UI
     hasClasses = classes.isNotEmpty;
     classesInfo.text = _classesToMultiline(classes);
 
     hasExams = exams.isNotEmpty;
     examsInfo.text = _examsToMultiline(exams);
 
-    wantsPaymentReminders = payments.isNotEmpty;
-    _fillPaymentFields(payments);
+    wantsPaymentReminders =
+        basicPayments.isNotEmpty || extraPayments.isNotEmpty;
 
-    _fillBirthdayFields(birthdays);
+    // Cumpleaños: usuario, pareja, extra
+    _fillBirthdayFieldsFromModel();
 
     loaded = true;
   }
 
-  //---------------------------------------------------------------------------
-  // MODELS → TEXT
-  //---------------------------------------------------------------------------
+  void _fillBirthdayFieldsFromModel() {
+    extraBirthdays = [];
+
+    // Usuario
+    final me = birthdays.firstWhere(
+      (b) => b.name.toLowerCase() == "usuario",
+      orElse: () => BirthdayEntry(name: "", day: 0, month: 0),
+    );
+    if (me.day > 0 && me.month > 0) {
+      userBirthday.text =
+          "${me.day.toString().padLeft(2, '0')}/${me.month.toString().padLeft(2, '0')}";
+    }
+
+    // Pareja
+    final partner = birthdays.firstWhere(
+      (b) => b.name.toLowerCase() == "pareja",
+      orElse: () => BirthdayEntry(name: "", day: 0, month: 0),
+    );
+    if (partner.day > 0 && partner.month > 0) {
+      hasPartner = true;
+      partnerBirthday.text =
+          "${partner.day.toString().padLeft(2, '0')}/${partner.month.toString().padLeft(2, '0')}";
+    }
+
+    // Extras (familia, amigos, etc.)
+    for (final b in birthdays) {
+      final lname = b.name.toLowerCase();
+      if (lname == "usuario" || lname == "pareja") continue;
+      extraBirthdays.add(b);
+    }
+
+    wantsMoreBirthdays = extraBirthdays.isNotEmpty;
+  }
+
+  // ----------------------------------------------------------
+  // HELPERS: MULTILÍNEA
+  // ----------------------------------------------------------
   String _classesToMultiline(List<ClassEntry> list) {
     if (list.isEmpty) return "";
     return list.map((c) => "${c.day} ${c.time} - ${c.name}").join('\n');
@@ -134,99 +172,21 @@ class SurveyController {
     return list.map((e) => "${e.date} ${e.time} - ${e.name}").join('\n');
   }
 
-  void _fillPaymentFields(List<PaymentEntry> list) {
-    PaymentEntry _find(String keyword) {
-      return list.firstWhere(
-        (e) => e.name.toLowerCase().contains(keyword),
-        orElse: () => PaymentEntry(name: "", day: 0, time: ""),
-      );
-    }
-
-    final agua = _find("agua");
-    if (agua.name.isNotEmpty) waterPayment.text = agua.day.toString();
-
-    final luz = _find("luz");
-    if (luz.name.isNotEmpty) electricPayment.text = luz.day.toString();
-
-    final internet = _find("internet");
-    if (internet.name.isNotEmpty) {
-      internetPayment.text = internet.day.toString();
-    }
-
-    final tel = _find("tel");
-    if (tel.name.isNotEmpty) phonePayment.text = tel.day.toString();
-
-    final renta = _find("renta");
-    if (renta.name.isNotEmpty) rentPayment.text = renta.day.toString();
-  }
-
-  void _fillBirthdayFields(List<BirthdayEntry> list) {
-    // Usuario
-    final me = list.firstWhere(
-      (e) => e.name.toLowerCase() == "usuario",
-      orElse: () => BirthdayEntry(name: "", day: 0, month: 0),
-    );
-    if (me.name.isNotEmpty) {
-      userBirthday.text =
-          "${me.day.toString().padLeft(2, '0')}/${me.month.toString().padLeft(2, '0')}";
-    }
-
-    // Pareja
-    final partner = list.firstWhere(
-      (e) => e.name.toLowerCase() == "pareja",
-      orElse: () => BirthdayEntry(name: "", day: 0, month: 0),
-    );
-
-    if (partner.name.isNotEmpty) {
-      hasPartner = true;
-      partnerBirthday.text =
-          "${partner.day.toString().padLeft(2, '0')}/${partner.month.toString().padLeft(2, '0')}";
-    }
-
-    final fam = <String>[];
-    final friends = <String>[];
-
-    for (final b in list) {
-      final lname = b.name.toLowerCase();
-      if (lname == "usuario" || lname == "pareja") continue;
-
-      final date =
-          "${b.day.toString().padLeft(2, '0')}/${b.month.toString().padLeft(2, '0')}";
-
-      if (lname.contains("mam") ||
-          lname.contains("pap") ||
-          lname.contains("herman") ||
-          lname.contains("tío") ||
-          lname.contains("tio") ||
-          lname.contains("abu")) {
-        fam.add("${b.name} - $date");
-      } else {
-        friends.add("${b.name} - $date");
-      }
-    }
-
-    familyBirthdays.text = fam.join('\n');
-    friendBirthdays.text = friends.join('\n');
-    wantsFriendBirthdays = friends.isNotEmpty;
-  }
-
-  //---------------------------------------------------------------------------
-  // TEXT → MODELS
-  //---------------------------------------------------------------------------
+  // ----------------------------------------------------------
+  // BUILD: CLASES / EXÁMENES
+  // ----------------------------------------------------------
   List<ClassEntry> _buildClasses() {
     if (!hasClasses) return [];
+
     final lines = classesInfo.text.trim().split('\n');
 
     return lines.where((l) => l.trim().isNotEmpty).map((line) {
       final parts = line.split('-');
-      if (parts.length < 2) {
-        return ClassEntry(name: line.trim(), day: "Lunes", time: "08:00");
-      }
+      final name = parts.length >= 2 ? parts[1].trim() : "Clase";
 
       final left = parts[0].trim();
-      final name = parts[1].trim();
-
       final tokens = left.split(' ');
+
       final day = tokens.isNotEmpty ? tokens[0] : "Lunes";
       final time = tokens.length >= 2 ? tokens[1] : "09:00";
 
@@ -236,6 +196,7 @@ class SurveyController {
 
   List<ExamEntry> _buildExams() {
     if (!hasExams) return [];
+
     final lines = examsInfo.text.trim().split('\n');
 
     return lines.where((l) => l.trim().isNotEmpty).map((line) {
@@ -252,37 +213,11 @@ class SurveyController {
     }).toList();
   }
 
-  List<PaymentEntry> _buildPayments() {
-    if (!wantsPaymentReminders) return [];
-
-    int parseDay(String s) {
-      final v = int.tryParse(s.trim());
-      if (v == null || v < 1) return 1;
-      if (v > 31) return 31;
-      return v;
-    }
-
-    final list = <PaymentEntry>[];
-
-    void add(String name, TextEditingController c) {
-      if (c.text.trim().isNotEmpty) {
-        list.add(
-          PaymentEntry(name: name, day: parseDay(c.text), time: "09:00"),
-        );
-      }
-    }
-
-    add("Pago agua", waterPayment);
-    add("Pago luz", electricPayment);
-    add("Pago internet", internetPayment);
-    add("Pago teléfono", phonePayment);
-    add("Pago renta", rentPayment);
-
-    return list;
-  }
-
+  // ----------------------------------------------------------
+  // BUILD: CUMPLEAÑOS
+  // ----------------------------------------------------------
   List<BirthdayEntry> _buildBirthdays() {
-    final result = <BirthdayEntry>[];
+    final out = <BirthdayEntry>[];
 
     int d(String x) => int.tryParse(x) ?? 1;
 
@@ -295,9 +230,9 @@ class SurveyController {
     if (userBirthday.text.trim().isNotEmpty) {
       final raw = parseDate(userBirthday.text.trim());
       if (raw != null) {
-        final p = raw.split('/');
-        result.add(
-          BirthdayEntry(name: "Usuario", day: d(p[0]), month: d(p[1])),
+        final parts = raw.split('/');
+        out.add(
+          BirthdayEntry(name: "Usuario", day: d(parts[0]), month: d(parts[1])),
         );
       }
     }
@@ -306,56 +241,35 @@ class SurveyController {
     if (hasPartner && partnerBirthday.text.trim().isNotEmpty) {
       final raw = parseDate(partnerBirthday.text.trim());
       if (raw != null) {
-        final p = raw.split('/');
-        result.add(BirthdayEntry(name: "Pareja", day: d(p[0]), month: d(p[1])));
+        final parts = raw.split('/');
+        out.add(
+          BirthdayEntry(name: "Pareja", day: d(parts[0]), month: d(parts[1])),
+        );
       }
     }
 
-    // Familia
-    for (final line in familyBirthdays.text.split('\n')) {
-      final l = line.trim();
-      if (l.isEmpty) continue;
-
-      final parts = l.split('-');
-      if (parts.length >= 2) {
-        final name = parts[0].trim();
-        final raw = parseDate(parts[1].trim());
-        if (raw != null) {
-          final p = raw.split('/');
-          result.add(BirthdayEntry(name: name, day: d(p[0]), month: d(p[1])));
-        }
-      }
+    // Extras
+    if (wantsMoreBirthdays) {
+      out.addAll(extraBirthdays);
     }
 
-    // Amigos
-    if (wantsFriendBirthdays) {
-      for (final line in friendBirthdays.text.split('\n')) {
-        final l = line.trim();
-        if (l.isEmpty) continue;
-
-        final parts = l.split('-');
-        if (parts.length >= 2) {
-          final name = parts[0].trim();
-          final raw = parseDate(parts[1].trim());
-          if (raw != null) {
-            final p = raw.split('/');
-            result.add(BirthdayEntry(name: name, day: d(p[0]), month: d(p[1])));
-          }
-        }
-      }
-    }
-
-    return result;
+    return out;
   }
 
-  //---------------------------------------------------------------------------
-  // BUILD FINAL MODEL
-  //---------------------------------------------------------------------------
+  // ----------------------------------------------------------
+  // SURVEY FINAL
+  // ----------------------------------------------------------
   SurveyData toSurvey() {
     final builtClasses = _buildClasses();
     final builtExams = _buildExams();
-    final builtPayments = _buildPayments();
     final builtBirthdays = _buildBirthdays();
+
+    final effectiveBasic = wantsPaymentReminders
+        ? basicPayments
+        : <PaymentEntry>[];
+    final effectiveExtra = wantsPaymentReminders
+        ? extraPayments
+        : <PaymentEntry>[];
 
     return SurveyData(
       profile: UserProfile(
@@ -374,67 +288,26 @@ class SurveyController {
       classes: builtClasses,
       exams: builtExams,
       activities: activities,
-      payments: builtPayments,
+      basicPayments: effectiveBasic,
+      extraPayments: effectiveExtra,
       birthdays: builtBirthdays,
-
-      // V2.0: de momento se mantienen como listas independientes
-      // que podrán llenarse desde una UI más avanzada.
-      extraPayments: extraPayments,
-      extraBirthdays: extraBirthdays,
     );
   }
 
-  //---------------------------------------------------------------------------
-  // AUTO-REMINDERS V7.5 HELPERS
-  //---------------------------------------------------------------------------
-  MonthlyPayments _toMonthlyPayments(SurveyData data) {
-    final p = data.payments;
-
-    int getDayByName(String keyword) {
-      final f = p.firstWhere(
-        (e) => e.name.toLowerCase().contains(keyword),
-        orElse: () => PaymentEntry(name: "", day: 0, time: ""),
-      );
-      return f.day;
-    }
-
-    return MonthlyPayments(
-      waterDay: getDayByName("agua"),
-      lightDay: getDayByName("luz"),
-      internetDay: getDayByName("internet"),
-      phoneDay: getDayByName("tel"),
-      rentDay: getDayByName("renta"),
-    );
-  }
-
-  BirthdayData _toBirthdayData(SurveyData data) {
-    final list = data.birthdays;
-
-    DateTime? findExact(String keyword) {
-      final f = list.firstWhere(
-        (e) => e.name.toLowerCase() == keyword,
-        orElse: () => BirthdayEntry(name: "", day: 0, month: 0),
-      );
-      if (f.day == 0) return null;
-      final now = DateTime.now();
-      return DateTime(now.year, f.month, f.day, 9, 0);
-    }
-
-    return BirthdayData(
-      userBirthday: findExact("usuario"),
-      partnerBirthday: findExact("pareja"),
-    );
-  }
-
+  // ----------------------------------------------------------
+  // AUTO-REMINDERS: USER TASKS
+  // ----------------------------------------------------------
   List<UserTask> _toUserTasks(SurveyData data) {
+    if (!data.preferences.wantsWeeklyAgenda) {
+      return [];
+    }
+
     final out = <UserTask>[];
 
-    // Clases → siguiente ocurrencia de ese día/hora
     for (final c in data.classes) {
       out.add(UserTask(_parseClassDate(c)));
     }
 
-    // Exámenes → fecha exacta
     for (final e in data.exams) {
       final dt =
           DateTime.tryParse("${e.date} ${e.time}") ??
@@ -480,83 +353,40 @@ class SurveyController {
     }
   }
 
-  //---------------------------------------------------------------------------
+  // ----------------------------------------------------------
   // SAVE
-  //---------------------------------------------------------------------------
+  // ----------------------------------------------------------
   Future<void> save() async {
     final newData = toSurvey();
-    final oldData = await SurveyStorage.loadSurvey();
-
-    final changes = <String>[];
-
-    bool diff(a, b) => jsonEncode(a) != jsonEncode(b);
-
-    if (oldData == null) {
-      changes.addAll([
-        "classes",
-        "exams",
-        "payments",
-        "birthdays",
-        "activities",
-        "preferences",
-      ]);
-    } else {
-      if (diff(oldData.classes, newData.classes)) changes.add("classes");
-      if (diff(oldData.exams, newData.exams)) changes.add("exams");
-      if (diff(oldData.payments, newData.payments)) changes.add("payments");
-      if (diff(oldData.birthdays, newData.birthdays)) changes.add("birthdays");
-      if (diff(oldData.activities, newData.activities)) {
-        changes.add("activities");
-      }
-      if (diff(oldData.preferences.toJson(), newData.preferences.toJson())) {
-        changes.add("preferences");
-      }
-    }
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString("userName", newData.profile.name);
     await prefs.setString("userCity", newData.profile.city);
 
     await SurveyStorage.saveSurvey(newData);
+    await SurveyStorage.setSurveyCompleted();
 
-    if (oldData == null) {
-      await SurveyStorage.setSurveyCompleted();
-    }
+    // AUTO-REMINDERS: regeneración SIEMPRE
+    final now = DateTime.now();
 
-    // 🔮 V7.5: si hubo cambios relevantes → regenerar TODOS los auto-recordatorios
-    if (changes.isNotEmpty) {
-      final now = DateTime.now();
+    final autoList = AutoReminderServiceV7.generateAll(
+      basicPayments: newData.basicPayments,
+      extraPayments: newData.extraPayments,
+      birthdays: newData.birthdays,
+      anticipationDays: int.tryParse(newData.preferences.reminderAdvance) ?? 1,
+      tasks: _toUserTasks(newData),
+      now: now,
+    );
 
-      final autoList = AutoReminderServiceV7.generateAll(
-        payments: _toMonthlyPayments(newData),
-        birthdays: _toBirthdayData(newData),
-        settings: ReminderSettings(
-          anticipationDays:
-              int.tryParse(newData.preferences.reminderAdvance) ?? 1,
-        ),
-        tasks: _toUserTasks(newData),
-        now: now,
+    final hiveList = ReminderGeneratorV7.convert(autoList);
 
-        // 🔥 NUEVO: compatibilidad con Survey 2.0
-        extraPayments: newData.extraPayments,
-        extraBirthdays: newData.extraBirthdays,
-      );
-
-      final hiveList = ReminderGeneratorV7.convert(autoList);
-
-      final box = await ReminderStorage.openBox();
-      await box.clear();
-      for (final r in hiveList) {
-        await box.put(r.id, r);
-      }
-
-      await ReminderScheduler.scheduleAll(hiveList);
-    }
+    // Usamos el ReminderController para reescribir caja + notifs
+    await ReminderController.overwriteAll(hiveList);
   }
 
-  //---------------------------------------------------------------------------
+  // ----------------------------------------------------------
   // DISPOSE
-  //---------------------------------------------------------------------------
+  // ----------------------------------------------------------
   void dispose() {
     name.dispose();
     occupation.dispose();
@@ -568,17 +398,8 @@ class SurveyController {
     classesInfo.dispose();
     examsInfo.dispose();
 
-    waterPayment.dispose();
-    electricPayment.dispose();
-    internetPayment.dispose();
-    phonePayment.dispose();
-    rentPayment.dispose();
-
-    partnerBirthday.dispose();
-    familyBirthdays.dispose();
-    friendBirthdays.dispose();
-
-    userBirthday.dispose();
     reminderAdvance.dispose();
+    userBirthday.dispose();
+    partnerBirthday.dispose();
   }
 }

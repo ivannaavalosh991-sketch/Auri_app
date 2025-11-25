@@ -12,7 +12,6 @@ class _AuriVisualState extends State<AuriVisual>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _pulse;
-  final _random = Random();
 
   @override
   void initState() {
