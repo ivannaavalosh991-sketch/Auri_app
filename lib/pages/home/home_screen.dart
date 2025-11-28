@@ -18,6 +18,9 @@ import 'package:auri_app/services/slime_mood_engine.dart';
 //import 'package:auri_app/auri/mind/auri_mind_engine.dart';
 import 'package:auri_app/auri/voice/voice_session_controller.dart';
 import 'package:auri_app/widgets/siri_voice_button.dart';
+//import 'package:auri_app/auri/voice/live_tts_engine.dart';
+import 'package:auri_app/services/realtime/auri_realtime.dart';
+import 'package:auri_app/auri/ui/jarvis_hud.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -29,6 +32,9 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   String _userName = '';
   String _userCity = '';
+  double _slimeMouthEnergy = 0.0; // para animar la boca del slime
+  String _thinkingText = "";
+  String jarvisText = ""; // si lo necesitas después
 
   final WeatherService _weatherService = WeatherService();
   WeatherModel? _weather;
@@ -38,11 +44,44 @@ class _HomeScreenState extends State<HomeScreen> {
   SlimeMood? _slimeMood;
 
   List<ReminderHive> _upcoming = [];
-
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadData());
+
+    // 1. Conectar WebSocket Jarvis
+    AuriRealtime.instance.connect("192.168.1.42");
+
+    final rt = AuriRealtime.instance;
+
+    // --------- PARCIAL (texto mientras piensa) ----------
+    rt.addOnPartial((txt) {
+      setState(() {
+        _thinkingText = txt;
+      });
+    });
+
+    // --------- FINAL (respuesta completa) ----------
+    rt.addOnFinal((txt) {
+      print("💬 Jarvis final: $txt");
+      // Aquí puedes usarlo para HUD o resumen
+    });
+
+    // --------- THINKING ----------
+    rt.addOnThinking((isThinking) {
+      SlimeMoodEngine.setVoiceState(isThinking ? "thinking" : "idle");
+    });
+
+    // --------- LIP SYNC → slime -----------
+    rt.addOnLip((energy) {
+      setState(() {
+        _slimeMouthEnergy = energy;
+      });
+    });
+
+    // --------- ACCIONES -----------
+    rt.addOnAction((rem) {
+      print("📌 Jarvis quiere crear recordatorio: $rem");
+    });
   }
 
   Future<void> _loadData() async {
@@ -217,11 +256,25 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ],
                               ),
                             ),
-                            const AuriSlimePlaceholder(),
+                            AuriSlimePlaceholder(
+                              mouthEnergy:
+                                  _slimeMouthEnergy, // se actualiza con JarvisHUD
+                              wobble:
+                                  _slimeMood?.wobble ??
+                                  0.5, // usa el mood si existe
+                              glowColor: _slimeMood?.baseColor ?? cs.primary,
+                            ),
                           ],
                         ),
                       ),
                       const SizedBox(height: 10),
+                      AuriJarvisHud(
+                        ip: "192.168.1.42",
+                        onLipSync: (e) => setState(() => _slimeMouthEnergy = e),
+                      ),
+
+                      const SizedBox(height: 10),
+
                       Text(
                         moodLabel,
                         textAlign: TextAlign.center,
@@ -366,18 +419,23 @@ class _GlassCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(24),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.05),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: cs.primary.withOpacity(0.35), width: 0.8),
+    return RepaintBoundary(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: cs.primary.withOpacity(0.35),
+                width: 0.8,
+              ),
+            ),
+            child: child,
           ),
-          child: child,
         ),
       ),
     );
@@ -496,7 +554,7 @@ class _VoiceButtonState extends State<_VoiceButton>
       child: GestureDetector(
         onTap: () async {
           // Aquí arrancará la sesión de voz
-          await VoiceSessionController.startVoiceSession();
+          await VoiceSessionController.startRecording();
         },
         child: Container(
           width: 70,

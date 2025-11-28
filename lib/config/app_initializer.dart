@@ -1,12 +1,9 @@
-// lib/config/app_initializer.dart
-
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:auri_app/models/reminder_hive.dart';
 import 'package:auri_app/models/reminder_hive_adapter.dart';
 import 'package:auri_app/pages/survey/storage/survey_storage.dart';
-import 'package:auri_app/services/notification_service.dart';
 
 class AppInitializer {
   Future<bool> init() async {
@@ -24,10 +21,7 @@ class AppInitializer {
     }
     await Hive.openBox<ReminderHive>('reminders');
 
-    // 4. INICIALIZAR SISTEMA DE NOTIFICACIONES (⬅️ antes del survey, importantísimo)
-    await NotificationService().init();
-
-    // 5. Cargar Survey
+    // 4. Cargar Survey
     final survey = await SurveyStorage.loadSurvey();
     final isSurveyCompleted = survey != null;
 

@@ -1,3 +1,5 @@
+// lib/widgets/siri_voice_button.dart
+
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:auri_app/auri/voice/voice_session_controller.dart';
@@ -11,7 +13,6 @@ class SiriVoiceButton extends StatefulWidget {
 class _SiriVoiceButtonState extends State<SiriVoiceButton>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
-  Timer? _ampTimer;
   double amp = 0.0;
   int _tapCount = 0;
   bool _isHeld = false;
@@ -25,16 +26,15 @@ class _SiriVoiceButtonState extends State<SiriVoiceButton>
       duration: const Duration(seconds: 2),
     )..repeat();
 
-    _ampTimer = Timer.periodic(const Duration(milliseconds: 80), (_) {
-      double a = STTWhisperOnline.lastAmplitude;
-      setState(() => amp = a);
+    /// 🔮 Escuchar amplitud sin timers → ultra responsive
+    STTWhisperOnline.instance.amplitude.addListener(() {
+      setState(() => amp = STTWhisperOnline.instance.amplitude.value);
     });
   }
 
   @override
   void dispose() {
     _controller.dispose();
-    _ampTimer?.cancel();
     super.dispose();
   }
 
@@ -45,7 +45,7 @@ class _SiriVoiceButtonState extends State<SiriVoiceButton>
     return GestureDetector(
       onTap: () {
         _tapCount++;
-        Future.delayed(const Duration(milliseconds: 280), () {
+        Future.delayed(const Duration(milliseconds: 250), () {
           if (_tapCount >= 2) {
             VoiceSessionController.cancel();
           } else {
@@ -78,9 +78,9 @@ class _SiriVoiceButtonState extends State<SiriVoiceButton>
             child: Stack(
               alignment: Alignment.center,
               children: [
-                _wave(amp, 1.15, t, cs.primary.withOpacity(0.25)),
-                _wave(amp, 1.0, t + 0.33, cs.primary.withOpacity(0.35)),
-                _wave(amp, 0.85, t + 0.66, cs.primary.withOpacity(0.55)),
+                _wave(amp, 1.10, t, cs.primary.withOpacity(0.20)),
+                _wave(amp, 0.95, t + 0.33, cs.primary.withOpacity(0.30)),
+                _wave(amp, 0.80, t + 0.66, cs.primary.withOpacity(0.55)),
 
                 Container(
                   width: 70,
@@ -89,8 +89,8 @@ class _SiriVoiceButtonState extends State<SiriVoiceButton>
                     shape: BoxShape.circle,
                     gradient: RadialGradient(
                       colors: [
-                        cs.primary.withOpacity(0.9),
-                        cs.primary.withOpacity(0.4),
+                        cs.primary.withOpacity(0.85),
+                        cs.primary.withOpacity(0.40),
                       ],
                     ),
                     boxShadow: [
@@ -115,9 +115,9 @@ class _SiriVoiceButtonState extends State<SiriVoiceButton>
     );
   }
 
-  Widget _wave(double amp, double baseScale, double anim, Color color) {
+  Widget _wave(double amp, double base, double anim, Color color) {
     return Transform.scale(
-      scale: baseScale + (amp * 0.4) + (anim * 0.05),
+      scale: base + (amp * 0.45) + (anim * 0.05),
       child: Container(
         width: 100,
         height: 100,

@@ -1,106 +1,93 @@
 import 'dart:async';
-import 'dart:io';
-import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_sound/flutter_sound.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:auri_app/services/realtime/auri_realtime.dart';
 
 class STTWhisperOnline {
-  static final FlutterSoundRecorder _recorder = FlutterSoundRecorder();
-  static bool _ready = false;
+  STTWhisperOnline._();
+  static final STTWhisperOnline instance = STTWhisperOnline._();
 
-  static const String whisperUrl = "http://10.0.2.2:8000/transcribe";
+  final FlutterSoundRecorder _rec = FlutterSoundRecorder();
 
-  /// amplitud normalizada (0–1)
-  static double lastAmplitude = 0.0;
+  bool _ready = false;
+  bool _recording = false;
 
-  static StreamSubscription? _progressSub;
+  StreamSubscription? _ampStream;
+
+  // 🔥 Amplitud
+  double _lastAmp = 0.0;
+  double get lastAmplitude => _lastAmp;
+
+  final ValueNotifier<double> amplitude = ValueNotifier(0.0);
 
   // ------------------------------------------------------------
-  // INIT
-  // ------------------------------------------------------------
-  static Future<void> init() async {
+  Future<void> init() async {
     if (_ready) return;
 
-    await _recorder.openRecorder();
+    final mic = await Permission.microphone.request();
+    if (!mic.isGranted) throw Exception("Micrófono denegado.");
 
-    // Permitir que el recorder emita progreso
-    await _recorder.setSubscriptionDuration(const Duration(milliseconds: 100));
+    await _rec.openRecorder();
+    await _rec.setSubscriptionDuration(const Duration(milliseconds: 90));
 
     _ready = true;
   }
 
   // ------------------------------------------------------------
-  // START RECORDING
   // ------------------------------------------------------------
-  static Future<void> startRecording() async {
+  Future<void> startRecording() async {
     await init();
+    if (_recording) return;
 
-    lastAmplitude = 0.0;
+    _recording = true;
+    _lastAmp = 0.0;
+    amplitude.value = 0.0;
 
-    await _recorder.startRecorder(
-      toFile: "auri_voice.wav",
-      codec: Codec.pcm16WAV,
-      sampleRate: 16000,
+    print("🎙 Auri voice-state → listening");
+    print("🎤 startRecorder() — streaming a WS");
+
+    // Cancelar antiguo stream de amplitud, por si acaso
+    await _ampStream?.cancel();
+    _ampStream = null;
+
+    // 🔹 1) Avisar al backend que empieza una sesión de audio
+    AuriRealtime.instance.startSession();
+
+    // 🔹 2) Empezar grabación en PCM16 y mandar a WS
+    await _rec.startRecorder(
+      codec: Codec.pcm16,
       numChannels: 1,
+      sampleRate: 16000,
+      toStream: AuriRealtime.instance.micSink,
     );
 
-    // ---- LECTURA DE AMPLITUD MEDIANTE EL STREAM OFICIAL ----
-    _progressSub?.cancel();
-    _progressSub = _recorder.onProgress?.listen((event) {
-      if (event == null) return;
+    // 🔹 3) Escuchar amplitud en tiempo real
+    _ampStream = _rec.onProgress!.listen((event) {
+      print("🎧 onProgress dB=${event.decibels}");
 
-      double db = event.decibels ?? -60;
-      double amp = ((db + 60) / 60).clamp(0.0, 1.0);
-
-      lastAmplitude = amp;
+      if (event.decibels != null) {
+        double norm = ((event.decibels! + 60) / 60).clamp(0.0, 1.0);
+        _lastAmp = norm;
+        amplitude.value = norm;
+      }
     });
   }
 
   // ------------------------------------------------------------
-  // STOP RECORDING
-  // ------------------------------------------------------------
-  static Future<File?> stopRecording() async {
-    if (!_ready) return null;
+  Future<void> stopRecording() async {
+    if (!_recording) return;
+    _recording = false;
 
-    final path = await _recorder.stopRecorder();
+    print("🛑 stopRecorder() — end WS");
 
-    await _progressSub?.cancel();
-    _progressSub = null;
+    await _rec.stopRecorder();
+    await _ampStream?.cancel();
+    _ampStream = null;
 
-    lastAmplitude = 0.0;
+    amplitude.value = 0.0;
 
-    if (path == null) return null;
-
-    return File(path);
+    // Señal de FIN al backend
+    AuriRealtime.instance.endAudio();
   }
-
-  // ------------------------------------------------------------
-  // TRANSCRIBIR VIA WHISPER
-  // ------------------------------------------------------------
-  static Future<String> transcribe(File audioFile) async {
-    try {
-      final dio = Dio();
-
-      final form = FormData.fromMap({
-        "file": await MultipartFile.fromFile(audioFile.path),
-      });
-
-      final response = await dio.post(
-        whisperUrl,
-        data: form,
-        options: Options(
-          contentType: "multipart/form-data",
-          receiveTimeout: const Duration(seconds: 120),
-        ),
-      );
-
-      return response.data["text"] ?? "";
-    } catch (e) {
-      return "Error conectando a Whisper: $e";
-    }
-  }
-
-  // ------------------------------------------------------------
-  // AMPLITUD PUBLICA
-  // ------------------------------------------------------------
-  static double getAmplitude() => lastAmplitude;
 }

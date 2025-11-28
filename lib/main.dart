@@ -14,23 +14,29 @@ import 'package:auri_app/widgets/auth_gate.dart';
 import 'package:auri_app/config/timezone_setup.dart';
 import 'package:auri_app/services/notification_service.dart';
 
+import 'package:auri_app/auri/voice/auri_tts.dart'; // 👈 TTS
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // 🔑 ENV
   await dotenv.load(fileName: ".env");
 
-  // Firebase
+  // 🔥 Firebase
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
-  // Timezone local
+  // 🌎 Zona horaria
   await setupLocalTimezone();
 
-  // Notificaciones locales + permisos
+  // 🔔 Notificaciones locales
   await NotificationService().init();
 
-  // Hive, Survey, etc.
+  // 🐝 Hive + Survey
   final isSurveyCompleted = await AppInitializer().init();
+
+  // 🔊 Inicializar TTS
+  await AuriTTS.instance.init();
 
   runApp(AuriApp(isSurveyCompleted: isSurveyCompleted));
 }

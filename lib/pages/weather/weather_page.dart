@@ -145,7 +145,11 @@ class _WeatherPageState extends State<WeatherPage> {
                         ],
                       ),
                     ),
-                    const AuriSlimePlaceholder(),
+                    AuriSlimePlaceholder(
+                      mouthEnergy: 0, // no hay voz aquí
+                      wobble: mood.wobble,
+                      glowColor: mood.baseColor,
+                    ),
                   ],
                 ),
               ),

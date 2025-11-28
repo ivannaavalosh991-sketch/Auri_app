@@ -1,7 +1,16 @@
 import 'package:flutter/material.dart';
 
 class AuriSlimePlaceholder extends StatefulWidget {
-  const AuriSlimePlaceholder({super.key});
+  final double mouthEnergy; // 0–1 (PCM → boca)
+  final double wobble; // 0–1 (movimiento suave)
+  final Color glowColor; // color base del mood
+
+  const AuriSlimePlaceholder({
+    super.key,
+    this.mouthEnergy = 0.0,
+    this.wobble = 0.5,
+    this.glowColor = const Color(0xFFB57CFF),
+  });
 
   @override
   State<AuriSlimePlaceholder> createState() => _AuriSlimePlaceholderState();
@@ -16,14 +25,15 @@ class _AuriSlimePlaceholderState extends State<AuriSlimePlaceholder>
   void initState() {
     super.initState();
 
+    // Animación cardíaca del slime
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 3),
+      duration: const Duration(seconds: 4),
     )..repeat(reverse: true);
 
     _pulse = Tween<double>(
-      begin: 0.85,
-      end: 1.15,
+      begin: 0.92,
+      end: 1.08,
     ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
   }
 
@@ -35,23 +45,43 @@ class _AuriSlimePlaceholderState extends State<AuriSlimePlaceholder>
 
   @override
   Widget build(BuildContext context) {
-    return ScaleTransition(
-      scale: _pulse,
-      child: Container(
-        width: 120,
-        height: 120,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: Colors.purpleAccent.withOpacity(0.8),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.purpleAccent.withOpacity(0.5),
-              blurRadius: 30,
-              spreadRadius: 5,
+    // Glow según energía de voz
+    final glow = widget.mouthEnergy * 0.7;
+
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (_, __) {
+        return Transform.scale(
+          scale: _pulse.value + (widget.wobble * 0.05),
+          child: Container(
+            width: 130,
+            height: 130,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: widget.glowColor.withOpacity(0.8),
+              boxShadow: [
+                BoxShadow(
+                  color: widget.glowColor.withOpacity(
+                    0.35 + glow.clamp(0, 0.8),
+                  ),
+                  blurRadius: 40 + (glow * 55),
+                  spreadRadius: 4 + (glow * 8),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+            child: Center(
+              child: Container(
+                width: 10 + (widget.mouthEnergy * 25),
+                height: (10 + (widget.mouthEnergy * 25)) * 0.5,
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.35),
+                  borderRadius: BorderRadius.circular(50),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

@@ -113,7 +113,11 @@ class _OutfitPageState extends State<OutfitPage>
                             ),
 
                             // BASE SLIME
-                            const AuriSlimePlaceholder(),
+                            AuriSlimePlaceholder(
+                              mouthEnergy: 0,
+                              wobble: mood.wobble,
+                              glowColor: mood.baseColor,
+                            ),
 
                             // ACCESSORY
                             if (accessory != null)
