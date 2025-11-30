@@ -14,28 +14,34 @@ import 'package:auri_app/widgets/auth_gate.dart';
 import 'package:auri_app/config/timezone_setup.dart';
 import 'package:auri_app/services/notification_service.dart';
 
+// 🔮 Memoria y contexto
+import 'package:auri_app/auri/memory/memory_manager.dart';
+import 'package:auri_app/services/context/context_builder.dart';
+import 'package:auri_app/services/context/auto_sync_timer.dart';
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 🔑 ENV
   await dotenv.load(fileName: ".env");
 
-  // 🔥 Firebase
+  // 🔮 Inicializar memoria ANTES de Firebase
+  await AuriMemoryManager.instance.init();
+
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
-  // 🌎 Zona horaria
   await setupLocalTimezone();
-
-  // 🔔 Notificaciones locales
   await NotificationService().init();
 
-  // 🐝 Hive + Survey
   final isSurveyCompleted = await AppInitializer().init();
 
-  // 🔊 Inicializar TTS
+  // 🔄 Primera sincronización con AuriMind (FASE 5)
+  await ContextBuilder.buildAndSync();
 
   runApp(AuriApp(isSurveyCompleted: isSurveyCompleted));
+
+  // 🔄 Sync automático cada 15min
+  AutoSyncTimer.start();
 }
 
 class AuriApp extends StatelessWidget {

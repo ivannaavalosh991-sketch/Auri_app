@@ -9,7 +9,9 @@ class ReminderHive {
   String repeats;
   String tag;
   bool isAuto;
-  String jsonPayload; // Opcional: JSON del modelo "lógico" (Reminder)
+
+  /// JSON opcional (antes required)
+  String jsonPayload;
 
   ReminderHive({
     required this.id,
@@ -18,7 +20,7 @@ class ReminderHive {
     this.repeats = 'once',
     this.tag = '',
     this.isAuto = false,
-    required this.jsonPayload,
+    this.jsonPayload = "{}", // <-- ⭐ valor seguro y opcional
   });
 
   Map<String, dynamic> toJsonMap() => {

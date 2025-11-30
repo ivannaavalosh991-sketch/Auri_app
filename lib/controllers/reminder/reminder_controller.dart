@@ -3,13 +3,12 @@ import 'package:auri_app/models/reminder_hive.dart';
 import 'package:auri_app/services/reminder_scheduler.dart';
 
 import 'package:auri_app/services/cleanup_service_v7_hive.dart';
+import 'package:auri_app/services/context/context_builder.dart';
 
 class ReminderController {
   static Box<ReminderHive> _box() => Hive.box<ReminderHive>('reminders');
 
-  // -------------------------------------------------------------
-  // OBTENER TODOS (ya limpios y ordenados)
-  // -------------------------------------------------------------
+  // ---------------- GET ALL ----------------
   static Future<List<ReminderHive>> getAll() async {
     final box = _box();
     final now = DateTime.now();
@@ -19,14 +18,13 @@ class ReminderController {
 
     if (cleaned.length != list.length) {
       await _persist(cleaned);
+      await ContextBuilder.buildAndSync(); // 🔄
     }
 
     return cleaned;
   }
 
-  // -------------------------------------------------------------
-  // GUARDAR / ACTUALIZAR
-  // -------------------------------------------------------------
+  // ---------------- SAVE ----------------
   static Future<void> save(ReminderHive r) async {
     final box = _box();
     await box.put(r.id, r);
@@ -36,11 +34,11 @@ class ReminderController {
     final cleaned = CleanupServiceHiveV7.clean(list, now);
 
     await _persist(cleaned);
+
+    await ContextBuilder.buildAndSync(); // 🔄 sync
   }
 
-  // -------------------------------------------------------------
-  // ELIMINAR
-  // -------------------------------------------------------------
+  // ---------------- DELETE ----------------
   static Future<void> delete(String id) async {
     final box = _box();
     await box.delete(id);
@@ -50,29 +48,21 @@ class ReminderController {
     final cleaned = CleanupServiceHiveV7.clean(list, now);
 
     await _persist(cleaned);
+
+    await ContextBuilder.buildAndSync(); // 🔄 sync
   }
 
-  // -------------------------------------------------------------
-  // PERSISTIR LISTA LIMPIA
-  // -------------------------------------------------------------
-  static Future<void> _persist(List<ReminderHive> list) async {
-    final box = _box();
-    await box.clear();
-    for (final r in list) {
-      await box.put(r.id, r);
-    }
-  }
-
+  // ---------------- OVERWRITE ----------------
   // -------------------------------------------------------------
   // OVERWRITE ALL (para Survey)  ⭐ NUEVO ⭐
   // -------------------------------------------------------------
   static Future<void> overwriteAll(List<ReminderHive> list) async {
     final box = _box();
 
-    // 1. Limpiamos duplicados y pasados
+    // 1. Limpiar duplicados y pasados
     final cleaned = CleanupServiceHiveV7.clean(list, DateTime.now());
 
-    // 2. Reescribimos TODO desde cero
+    // 2. Reescribir TODO
     await box.clear();
 
     for (final r in cleaned) {
@@ -83,8 +73,18 @@ class ReminderController {
     for (final r in cleaned) {
       final date = DateTime.tryParse(r.dateIso);
       if (date != null && date.isAfter(DateTime.now())) {
-        await ReminderScheduler.schedule(r);
+        await ReminderScheduler.schedule(r); // <-- SIN jsonPayload
       }
+    }
+  }
+
+  // ---------------- PERSIST ----------------
+  static Future<void> _persist(List<ReminderHive> list) async {
+    final box = _box();
+    await box.clear();
+
+    for (final r in list) {
+      await box.put(r.id, r);
     }
   }
 }

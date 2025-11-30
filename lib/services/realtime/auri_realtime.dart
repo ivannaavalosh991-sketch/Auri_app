@@ -1,10 +1,19 @@
+// lib/services/realtime/auri_realtime.dart
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:web_socket_channel/web_socket_channel.dart';
+
+// Voice / TTS
 import 'package:auri_app/auri/voice/tts_player_stream.dart';
 import 'package:auri_app/auri/voice/stt_whisper_online.dart';
+
+// Reminder Bridge
+import 'package:auri_app/models/reminder_hive.dart';
+import 'package:auri_app/controllers/reminder/reminder_controller.dart';
+import 'package:auri_app/services/reminder_scheduler.dart';
 
 class AuriRealtime {
   AuriRealtime._();
@@ -17,13 +26,12 @@ class AuriRealtime {
   Timer? _retryTimer;
   Timer? _heartbeat;
 
-  // Stream del micrófono
+  // ---------------- MIC STREAM ----------------
   final StreamController<Uint8List> _micStream =
       StreamController<Uint8List>.broadcast();
-
   StreamSink<Uint8List> get micSink => _micStream.sink;
 
-  // Callbacks
+  // ---------------- CALLBACKS ----------------
   final _onPartial = <void Function(String)>[];
   final _onFinal = <void Function(String)>[];
   final _onThinking = <void Function(bool)>[];
@@ -54,7 +62,6 @@ class AuriRealtime {
 
     try {
       _ch = WebSocketChannel.connect(Uri.parse(url));
-
       _connected = true;
       _connecting = false;
       print("🟢 WS conectado");
@@ -74,11 +81,11 @@ class AuriRealtime {
       // heartbeat
       _heartbeat?.cancel();
       _heartbeat = Timer.periodic(
-        Duration(seconds: 20),
+        const Duration(seconds: 20),
         (_) => _sendJson({"type": "ping"}),
       );
 
-      // escuchar mensajes WS
+      // escuchar mensajes
       _ch!.stream.listen(
         _onWsMessage,
         onDone: _handleClose,
@@ -101,7 +108,7 @@ class AuriRealtime {
   void _scheduleReconnect() {
     if (_retryTimer != null) return;
 
-    _retryTimer = Timer(Duration(seconds: 3), () {
+    _retryTimer = Timer(const Duration(seconds: 3), () {
       print("🔄 Reintentando WS…");
       _retryTimer = null;
       connect();
@@ -121,10 +128,10 @@ class AuriRealtime {
   void sendText(String t) => _sendJson({"type": "text_command", "text": t});
 
   // =========================================================
-  // MANEJO DE EVENTOS INCOMING
+  // MENSAJES DEL BACKEND
   // =========================================================
   Future<void> _onWsMessage(dynamic data) async {
-    // AUDIO TTS (bytes MP3)
+    // AUDIO MP3
     if (data is List<int>) {
       Uint8List bytes = Uint8List.fromList(data);
       await AuriTtsStreamPlayer.instance.addChunk(bytes);
@@ -161,20 +168,20 @@ class AuriRealtime {
         for (final f in _onThinking) f(isThinking);
 
         if (!isThinking) {
-          // Backend terminó → volver a grabar
           await STTWhisperOnline.instance.startRecording();
         }
         break;
 
       // ---------------- LIP ----------------
       case "lip_sync":
-        double e = (msg["energy"] ?? 0).toDouble();
+        final e = (msg["energy"] ?? 0).toDouble();
         for (final f in _onLip) f(e);
         break;
 
       // ---------------- ACTIONS ----------------
       case "action":
-        for (final f in _onAction) f(msg);
+        for (final f in _onAction) f(msg); // UI listeners
+        await _runAction(msg["action"], msg["payload"]);
         break;
 
       // ---------------- MP3 END ----------------
@@ -184,6 +191,92 @@ class AuriRealtime {
 
       default:
         print("ℹ Evento desconocido: $msg");
+    }
+  }
+
+  // =========================================================
+  // ACTIONS BRIDGE (FASE 8)
+  // =========================================================
+  Future<void> _runAction(String? action, dynamic payload) async {
+    if (action == null) return;
+
+    switch (action) {
+      case "create_reminder":
+        await _bridgeCreateReminder(payload);
+        break;
+
+      case "delete_reminder":
+        await _bridgeDeleteReminder(payload);
+        break;
+
+      case "open_weather":
+      case "open_outfit":
+        break;
+
+      default:
+        print("⚠ Acción desconocida: $action");
+    }
+  }
+
+  // ---------------------------------------
+  // Crear recordatorio desde backend
+  // ---------------------------------------
+  Future<void> _bridgeCreateReminder(dynamic payload) async {
+    if (payload == null) return;
+
+    try {
+      final title = payload["title"];
+      final dtIso = payload["datetime"];
+
+      if (title == null || dtIso == null) return;
+
+      final dt = DateTime.tryParse(dtIso);
+      if (dt == null) return;
+
+      final r = ReminderHive(
+        id: "${DateTime.now().millisecondsSinceEpoch}",
+        title: title,
+        dateIso: dtIso,
+      );
+
+      await ReminderController.save(r);
+      await ReminderScheduler.schedule(r);
+
+      print("📌 [BRIDGE] Recordatorio creado: $title @ $dtIso");
+    } catch (e) {
+      print("❌ Error createReminder: $e");
+    }
+  }
+
+  // ---------------------------------------
+  // Borrar recordatorio por título aproximado
+  // ---------------------------------------
+  Future<void> _bridgeDeleteReminder(dynamic payload) async {
+    if (payload == null) return;
+
+    try {
+      final title = payload["title"];
+      if (title == null) return;
+
+      final all = await ReminderController.getAll();
+
+      ReminderHive? match;
+      for (final r in all) {
+        if (r.title.toLowerCase().contains(title.toLowerCase())) {
+          match = r;
+          break;
+        }
+      }
+
+      if (match == null) {
+        print("⚠ No encontré recordatorio para eliminar: $title");
+        return;
+      }
+
+      await ReminderController.delete(match.id);
+      print("🗑 [BRIDGE] Eliminado: ${match.title}");
+    } catch (e) {
+      print("❌ Error deleteReminder: $e");
     }
   }
 }

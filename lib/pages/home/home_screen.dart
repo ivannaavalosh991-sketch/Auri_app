@@ -20,6 +20,7 @@ import 'package:auri_app/widgets/siri_voice_button.dart';
 
 import 'package:auri_app/services/realtime/auri_realtime.dart';
 import 'package:auri_app/auri/ui/jarvis_hud.dart';
+import 'package:auri_app/services/context/context_builder.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -47,6 +48,9 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+
+    // 🔄 justo al abrir el HomeScreen sincronizamos
+    ContextBuilder.buildAndSync();
 
     // 🔌 Conectar al backend de Render
     AuriRealtime.instance.ensureConnected();
