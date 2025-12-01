@@ -6,26 +6,23 @@ import 'package:auri_app/services/weather_service.dart';
 import 'package:auri_app/models/weather_model.dart';
 
 import 'package:auri_app/services/auto_reminder_service.dart';
-import 'package:auri_app/controllers/reminder/reminder_controller.dart';
 
 // Memoria interna Flutter
 import 'package:auri_app/auri/memory/memory_manager.dart';
 
-// User data (Survey)
+// Survey
 import 'package:auri_app/pages/survey/storage/survey_storage.dart';
 import 'package:auri_app/pages/survey/models/survey_models.dart';
 
 class ContextBuilder {
   // ============================================================
-  // BUILD MASTER PAYLOAD
-  // ============================================================
   static Future<AuriContextPayload> build() async {
     final survey = await SurveyStorage.loadSurvey();
     final now = DateTime.now();
 
-    // ========================================================
+    // ============================================================
     // USER
-    // ========================================================
+    // ============================================================
     final user = AuriContextUser(
       name: survey?.profile.name ?? "Usuario",
       city: survey?.profile.city ?? "San José",
@@ -33,14 +30,14 @@ class ContextBuilder {
       birthday: _extractBirthday(survey),
     );
 
-    // ========================================================
+    // ============================================================
     // WEATHER
-    // ========================================================
+    // ============================================================
     AuriContextWeather? weatherBlock;
 
     try {
       final WeatherModel w = await WeatherService().getWeather(
-        survey?.profile.city ?? "San José",
+        user.city ?? "San José",
       );
 
       weatherBlock = AuriContextWeather(
@@ -51,10 +48,39 @@ class ContextBuilder {
       weatherBlock = null;
     }
 
-    // ========================================================
-    // AUTO EVENTS (pagos + cumple + agenda)
-    // ========================================================
-    final List<UserTask> tasks = _buildTasksFromSurvey(survey);
+    // ============================================================
+    // RAW DATA FROM SURVEY
+    // ============================================================
+    final classesJson =
+        survey?.classes
+            .map((e) => e.toJson())
+            .toList()
+            .cast<Map<String, dynamic>>() ??
+        [];
+
+    final examsJson =
+        survey?.exams
+            .map((e) => e.toJson())
+            .toList()
+            .cast<Map<String, dynamic>>() ??
+        [];
+
+    final birthdaysJson =
+        survey?.birthdays
+            .map((e) => e.toJson())
+            .toList()
+            .cast<Map<String, dynamic>>() ??
+        [];
+
+    final paymentsJson = [
+      ...(survey?.basicPayments.map((e) => e.toJson()) ?? []),
+      ...(survey?.extraPayments.map((e) => e.toJson()) ?? []),
+    ].cast<Map<String, dynamic>>();
+
+    // ============================================================
+    // AUTO EVENTS
+    // ============================================================
+    final tasks = _buildTasksFromSurvey(survey);
 
     final auto = AutoReminderServiceV7.generateAll(
       basicPayments: survey?.basicPayments ?? [],
@@ -72,24 +98,9 @@ class ContextBuilder {
         )
         .toList();
 
-    // ========================================================
-    // RAW: CLASSES, EXAMS, BIRTHDAYS, PAYMENTS
-    // ========================================================
-    final classesJson = survey?.classes.map((e) => e.toJson()).toList() ?? [];
-
-    final examsJson = survey?.exams.map((e) => e.toJson()).toList() ?? [];
-
-    final birthdaysJson =
-        survey?.birthdays.map((e) => e.toJson()).toList() ?? [];
-
-    final paymentsJson = [
-      ...(survey?.basicPayments.map((e) => e.toJson()) ?? []),
-      ...(survey?.extraPayments.map((e) => e.toJson()) ?? []),
-    ];
-
-    // ========================================================
-    // PREFS (survey + memory)
-    // ========================================================
+    // ============================================================
+    // PREFS
+    // ============================================================
     final prefsMemory = AuriMemoryManager.instance.search("pref");
 
     final shortReplies = prefsMemory.any(
@@ -98,35 +109,32 @@ class ContextBuilder {
 
     final softVoice = prefsMemory.any((m) => m.value.contains("voz_suave"));
 
-    final personality = "auri_classic";
-
     final prefs = AuriContextPrefs(
       shortReplies: shortReplies,
       softVoice: softVoice,
-      personality: personality,
+      personality: "auri_classic",
     );
 
-    // ========================================================
-    // BUILD COMPLETE PAYLOAD
-    // ========================================================
+    // ============================================================
+    // BUILD FINAL PAYLOAD (incluye payments)
+    // ============================================================
     return AuriContextPayload(
       weather: weatherBlock,
       events: events,
       classes: classesJson,
       exams: examsJson,
       birthdays: birthdaysJson,
-      payments: paymentsJson,
+      payments: paymentsJson, // <-- REQUERIDO POR TU MODELO
+
       user: user,
       prefs: prefs,
     );
   }
 
   // ============================================================
-  // SYNC AUTOMÁTICO
-  // ============================================================
   static Future<void> buildAndSync() async {
-    final payload = await build();
-    await ContextSyncService.sync(payload);
+    final p = await build();
+    await ContextSyncService.sync(p);
   }
 
   // ============================================================
@@ -154,16 +162,15 @@ class ContextBuilder {
     if (survey == null) return out;
     if (!survey.preferences.wantsWeeklyAgenda) return out;
 
-    // CLASES → próximos días
     for (final c in survey.classes) {
       out.add(UserTask(_parseClassDate(c)));
     }
 
-    // EXÁMENES → fecha exacta
     for (final e in survey.exams) {
       final dt =
           DateTime.tryParse("${e.date} ${e.time}") ??
           DateTime.now().add(const Duration(days: 1));
+
       out.add(UserTask(dt));
     }
 
@@ -190,15 +197,15 @@ class ContextBuilder {
         return DateTime.monday;
       case "martes":
         return DateTime.tuesday;
-      case "miércoles":
       case "miercoles":
+      case "miércoles":
         return DateTime.wednesday;
       case "jueves":
         return DateTime.thursday;
       case "viernes":
         return DateTime.friday;
-      case "sábado":
       case "sabado":
+      case "sábado":
         return DateTime.saturday;
       default:
         return DateTime.sunday;
