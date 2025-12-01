@@ -1,22 +1,21 @@
-// ============================================================
-// CONTEXT MODELS V4 — completamente alineados al backend
-// ============================================================
-
 class AuriContextPayload {
   final AuriContextWeather? weather;
   final List<AuriContextEvent> events;
-
   final List<Map<String, dynamic>> classes;
   final List<Map<String, dynamic>> exams;
   final List<Map<String, dynamic>> birthdays;
   final List<Map<String, dynamic>> payments;
-
   final AuriContextUser user;
   final AuriContextPrefs prefs;
+
+  // 🔹 NUEVO
   final String timezone;
+  final String currentTimeIso;
+  final String currentTimePretty;
+  final String currentDatePretty;
 
   AuriContextPayload({
-    required this.weather,
+    this.weather,
     required this.events,
     required this.classes,
     required this.exams,
@@ -25,21 +24,27 @@ class AuriContextPayload {
     required this.user,
     required this.prefs,
     required this.timezone,
+    required this.currentTimeIso,
+    required this.currentTimePretty,
+    required this.currentDatePretty,
   });
 
-  Map<String, dynamic> toJson() {
-    return {
-      "weather": weather?.toJson(),
-      "events": events.map((e) => e.toJson()).toList(),
-      "classes": classes,
-      "exams": exams,
-      "birthdays": birthdays,
-      "payments": payments,
-      "user": user.toJson(),
-      "prefs": prefs.toJson(),
-      "timezone": timezone,
-    };
-  }
+  Map<String, dynamic> toJson() => {
+    "weather": weather?.toJson(),
+    "events": events.map((e) => e.toJson()).toList(),
+    "classes": classes,
+    "exams": exams,
+    "birthdays": birthdays,
+    "payments": payments,
+    "user": user.toJson(),
+    "prefs": prefs.toJson(),
+
+    // 🔹 NUEVO
+    "timezone": timezone,
+    "current_time_iso": currentTimeIso,
+    "current_time_pretty": currentTimePretty,
+    "current_date_pretty": currentDatePretty,
+  };
 }
 
 // ============================================================

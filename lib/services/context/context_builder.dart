@@ -17,7 +17,9 @@ import 'package:auri_app/services/realtime/auri_realtime.dart';
 class ContextBuilder {
   static Future<AuriContextPayload> build() async {
     final survey = await SurveyStorage.loadSurvey();
-    final now = DateTime.now();
+
+    // 🔹 Usar SIEMPRE hora local del dispositivo
+    final now = DateTime.now().toLocal();
 
     // USER
     final user = AuriContextUser(
@@ -101,6 +103,13 @@ class ContextBuilder {
       personality: "auri_classic",
     );
 
+    // 🔹 FORMATEAR HORA Y FECHA LEGIBLE PARA EL MODELO
+    final hh = now.hour.toString().padLeft(2, '0');
+    final mm = now.minute.toString().padLeft(2, '0');
+    final currentTimePretty = "$hh:$mm";
+    final currentDatePretty =
+        "${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}";
+
     return AuriContextPayload(
       weather: weatherBlock,
       events: mergedEvents,
@@ -110,7 +119,12 @@ class ContextBuilder {
       payments: paymentsJson.cast<Map<String, dynamic>>(),
       user: user,
       prefs: prefs,
+
+      // 🔹 NUEVO
       timezone: now.timeZoneName,
+      currentTimeIso: now.toIso8601String(),
+      currentTimePretty: currentTimePretty,
+      currentDatePretty: currentDatePretty,
     );
   }
 
