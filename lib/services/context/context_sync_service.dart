@@ -1,16 +1,19 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:auri_app/services/context/context_models.dart';
+import 'context_models.dart';
 
 class ContextSyncService {
   static const String baseUrl =
       "https://auri-backend-production-ef14.up.railway.app";
 
-  /// Envía el payload completo al backend
+  static bool _syncing = false;
+
   static Future<void> sync(AuriContextPayload payload) async {
+    if (_syncing) return; // evita doble sync
+    _syncing = true;
+
     try {
       final url = Uri.parse("$baseUrl/api/context/sync");
-
       final body = jsonEncode(payload.toJson());
 
       final resp = await http.post(
@@ -26,6 +29,8 @@ class ContextSyncService {
       }
     } catch (e) {
       print("🔥 ERROR ContextSync: $e");
+    } finally {
+      _syncing = false;
     }
   }
 }

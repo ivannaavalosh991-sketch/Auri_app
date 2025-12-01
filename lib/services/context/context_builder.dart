@@ -1,28 +1,20 @@
-// lib/services/context/context_builder.dart
-
 import 'package:auri_app/services/context/context_models.dart';
 import 'package:auri_app/services/context/context_sync_service.dart';
 import 'package:auri_app/services/weather_service.dart';
 import 'package:auri_app/models/weather_model.dart';
 
 import 'package:auri_app/services/auto_reminder_service.dart';
-
-// Memoria interna Flutter
 import 'package:auri_app/auri/memory/memory_manager.dart';
 
-// Survey
 import 'package:auri_app/pages/survey/storage/survey_storage.dart';
 import 'package:auri_app/pages/survey/models/survey_models.dart';
 
 class ContextBuilder {
-  // ============================================================
   static Future<AuriContextPayload> build() async {
     final survey = await SurveyStorage.loadSurvey();
     final now = DateTime.now();
 
-    // ============================================================
     // USER
-    // ============================================================
     final user = AuriContextUser(
       name: survey?.profile.name ?? "Usuario",
       city: survey?.profile.city ?? "San José",
@@ -30,16 +22,12 @@ class ContextBuilder {
       birthday: _extractBirthday(survey),
     );
 
-    // ============================================================
     // WEATHER
-    // ============================================================
     AuriContextWeather? weatherBlock;
-
     try {
       final WeatherModel w = await WeatherService().getWeather(
         user.city ?? "San José",
       );
-
       weatherBlock = AuriContextWeather(
         temp: w.temperature,
         description: w.description,
@@ -48,40 +36,18 @@ class ContextBuilder {
       weatherBlock = null;
     }
 
-    // ============================================================
-    // RAW DATA FROM SURVEY
-    // ============================================================
-    final classesJson =
-        survey?.classes
-            .map((e) => e.toJson())
-            .toList()
-            .cast<Map<String, dynamic>>() ??
-        [];
-
-    final examsJson =
-        survey?.exams
-            .map((e) => e.toJson())
-            .toList()
-            .cast<Map<String, dynamic>>() ??
-        [];
-
+    // RAW BLOCKS
+    final classesJson = survey?.classes.map((e) => e.toJson()).toList() ?? [];
+    final examsJson = survey?.exams.map((e) => e.toJson()).toList() ?? [];
     final birthdaysJson =
-        survey?.birthdays
-            .map((e) => e.toJson())
-            .toList()
-            .cast<Map<String, dynamic>>() ??
-        [];
-
+        survey?.birthdays.map((e) => e.toJson()).toList() ?? [];
     final paymentsJson = [
       ...(survey?.basicPayments.map((e) => e.toJson()) ?? []),
       ...(survey?.extraPayments.map((e) => e.toJson()) ?? []),
-    ].cast<Map<String, dynamic>>();
+    ];
 
-    // ============================================================
     // AUTO EVENTS
-    // ============================================================
     final tasks = _buildTasksFromSurvey(survey);
-
     final auto = AutoReminderServiceV7.generateAll(
       basicPayments: survey?.basicPayments ?? [],
       extraPayments: survey?.extraPayments ?? [],
@@ -98,48 +64,38 @@ class ContextBuilder {
         )
         .toList();
 
-    // ============================================================
     // PREFS
-    // ============================================================
     final prefsMemory = AuriMemoryManager.instance.search("pref");
 
-    final shortReplies = prefsMemory.any(
-      (m) => m.value.contains("respuestas cortas"),
-    );
-
-    final softVoice = prefsMemory.any((m) => m.value.contains("voz_suave"));
-
     final prefs = AuriContextPrefs(
-      shortReplies: shortReplies,
-      softVoice: softVoice,
+      shortReplies: prefsMemory.any(
+        (m) => m.value.contains("respuestas cortas"),
+      ),
+      softVoice: prefsMemory.any((m) => m.value.contains("voz_suave")),
       personality: "auri_classic",
     );
 
-    // ============================================================
-    // BUILD FINAL PAYLOAD (incluye payments)
-    // ============================================================
+    // TIMEZONE FIX (sin plugin)
+    final tz = DateTime.now().timeZoneName;
+
     return AuriContextPayload(
       weather: weatherBlock,
       events: events,
-      classes: classesJson,
-      exams: examsJson,
-      birthdays: birthdaysJson,
-      payments: paymentsJson, // <-- REQUERIDO POR TU MODELO
-
+      classes: classesJson.cast<Map<String, dynamic>>(),
+      exams: examsJson.cast<Map<String, dynamic>>(),
+      birthdays: birthdaysJson.cast<Map<String, dynamic>>(),
+      payments: paymentsJson.cast<Map<String, dynamic>>(),
       user: user,
       prefs: prefs,
+      timezone: tz,
     );
   }
 
-  // ============================================================
   static Future<void> buildAndSync() async {
     final p = await build();
     await ContextSyncService.sync(p);
   }
 
-  // ============================================================
-  // HELPERS
-  // ============================================================
   static String? _extractBirthday(SurveyData? survey) {
     if (survey == null) return null;
 
@@ -170,7 +126,6 @@ class ContextBuilder {
       final dt =
           DateTime.tryParse("${e.date} ${e.time}") ??
           DateTime.now().add(const Duration(days: 1));
-
       out.add(UserTask(dt));
     }
 
@@ -180,7 +135,6 @@ class ContextBuilder {
   static DateTime _parseClassDate(ClassEntry c) {
     final now = DateTime.now();
     final weekday = _weekdayNumber(c.day);
-
     int diff = (weekday - now.weekday) % 7;
     if (diff == 0) diff = 7;
 

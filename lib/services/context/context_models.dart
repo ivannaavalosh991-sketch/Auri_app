@@ -1,6 +1,6 @@
-// -------------------------------------------------------------
-// PAYLOAD COMPLETO FINAL
-// -------------------------------------------------------------
+// ============================================================
+// CONTEXT MODELS V4 — completamente alineados al backend
+// ============================================================
 
 class AuriContextPayload {
   final AuriContextWeather? weather;
@@ -13,6 +13,7 @@ class AuriContextPayload {
 
   final AuriContextUser user;
   final AuriContextPrefs prefs;
+  final String timezone;
 
   AuriContextPayload({
     required this.weather,
@@ -23,6 +24,7 @@ class AuriContextPayload {
     required this.payments,
     required this.user,
     required this.prefs,
+    required this.timezone,
   });
 
   Map<String, dynamic> toJson() {
@@ -35,13 +37,12 @@ class AuriContextPayload {
       "payments": payments,
       "user": user.toJson(),
       "prefs": prefs.toJson(),
+      "timezone": timezone,
     };
   }
 }
 
-// -------------------------------------------------------------
 // WEATHER
-// -------------------------------------------------------------
 class AuriContextWeather {
   final double temp;
   final String description;
@@ -51,9 +52,7 @@ class AuriContextWeather {
   Map<String, dynamic> toJson() => {"temp": temp, "description": description};
 }
 
-// -------------------------------------------------------------
-// EVENT BLOCK
-// -------------------------------------------------------------
+// EVENT
 class AuriContextEvent {
   final String title;
   final bool urgent;
@@ -72,9 +71,7 @@ class AuriContextEvent {
   };
 }
 
-// -------------------------------------------------------------
-// USER BLOCK
-// -------------------------------------------------------------
+// USER
 class AuriContextUser {
   final String name;
   final String? city;
@@ -96,9 +93,7 @@ class AuriContextUser {
   };
 }
 
-// -------------------------------------------------------------
-// PREFS BLOCK
-// -------------------------------------------------------------
+// PREFS
 class AuriContextPrefs {
   final bool shortReplies;
   final bool softVoice;
@@ -111,8 +106,8 @@ class AuriContextPrefs {
   });
 
   Map<String, dynamic> toJson() => {
-    "short_replies": shortReplies,
-    "soft_voice": softVoice,
+    "shortReplies": shortReplies,
+    "softVoice": softVoice,
     "personality": personality,
   };
 }
