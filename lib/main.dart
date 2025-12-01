@@ -18,9 +18,14 @@ import 'package:auri_app/services/notification_service.dart';
 import 'package:auri_app/auri/memory/memory_manager.dart';
 import 'package:auri_app/services/context/context_builder.dart';
 import 'package:auri_app/services/context/auto_sync_timer.dart';
+import 'package:auri_app/services/realtime/auri_realtime.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await ContextBuilder.buildAndSync();
+
+  // Avisar al WS que el contexto ya está listo
+  AuriRealtime.instance.markContextReady();
 
   await dotenv.load(fileName: ".env");
 

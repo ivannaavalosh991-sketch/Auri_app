@@ -25,6 +25,11 @@ class AuriRealtime {
 
   Timer? _retryTimer;
   Timer? _heartbeat;
+  bool _contextReady = false;
+
+  void markContextReady() {
+    _contextReady = true;
+  }
 
   // Dominio del backend Railway
   static const String _host = "auri-backend-production-ef14.up.railway.app";
@@ -52,6 +57,21 @@ class AuriRealtime {
   // =========================================================
   Future<void> ensureConnected() async {
     if (_connected || _connecting) return;
+
+    // ESPERAR HASTA QUE EL CONTEXTO ESTÉ LISTO
+    int waited = 0;
+
+    while (!_contextReady && waited < 3000) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      waited += 100;
+    }
+
+    // si luego de 3s el contexto sigue sin estar listo → no conectamos
+    if (!_contextReady) {
+      print("❌ No se conectó WS porque el contexto no está listo");
+      return;
+    }
+
     connect();
   }
 
