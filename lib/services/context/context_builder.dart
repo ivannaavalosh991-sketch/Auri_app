@@ -9,6 +9,11 @@ import 'package:auri_app/auri/memory/memory_manager.dart';
 import 'package:auri_app/pages/survey/storage/survey_storage.dart';
 import 'package:auri_app/pages/survey/models/survey_models.dart';
 
+import 'package:auri_app/controllers/reminder/reminder_controller.dart';
+import 'manual_reminder_classifier.dart';
+import 'manual_reminder_merger.dart';
+import 'package:auri_app/services/realtime/auri_realtime.dart';
+
 class ContextBuilder {
   static Future<AuriContextPayload> build() async {
     final survey = await SurveyStorage.loadSurvey();
@@ -32,11 +37,9 @@ class ContextBuilder {
         temp: w.temperature,
         description: w.description,
       );
-    } catch (_) {
-      weatherBlock = null;
-    }
+    } catch (_) {}
 
-    // RAW BLOCKS
+    // RAW SURVEY BLOCKS
     final classesJson = survey?.classes.map((e) => e.toJson()).toList() ?? [];
     final examsJson = survey?.exams.map((e) => e.toJson()).toList() ?? [];
     final birthdaysJson =
@@ -46,8 +49,9 @@ class ContextBuilder {
       ...(survey?.extraPayments.map((e) => e.toJson()) ?? []),
     ];
 
-    // AUTO EVENTS
+    // AUTO REMINDERS – TRIM TO 30 DAYS
     final tasks = _buildTasksFromSurvey(survey);
+
     final auto = AutoReminderServiceV7.generateAll(
       basicPayments: survey?.basicPayments ?? [],
       extraPayments: survey?.extraPayments ?? [],
@@ -58,11 +62,33 @@ class ContextBuilder {
       now: now,
     );
 
-    final events = auto
+    final horizon = now.add(const Duration(days: 30));
+    final autoTrimmed = auto.where((a) => a.date.isBefore(horizon)).toList();
+
+    final autoEvents = autoTrimmed
         .map(
-          (a) => AuriContextEvent(title: a.title, urgent: false, when: a.date),
+          (a) => AuriContextEvent(
+            title: a.title,
+            urgent: false,
+            when: a.date.toIso8601String(),
+          ),
         )
         .toList();
+
+    // MANUAL REMINDERS
+    final manualHive = await ReminderController.getAll();
+    final expandedManual = <ExpandedReminder>[];
+
+    for (final r in manualHive) {
+      expandedManual.addAll(expandReminder(r, survey));
+    }
+
+    // MERGE FINAL
+    final mergedEvents = mergeAllEvents(
+      manual: expandedManual,
+      autoEvents: autoEvents,
+      survey: survey,
+    );
 
     // PREFS
     final prefsMemory = AuriMemoryManager.instance.search("pref");
@@ -75,46 +101,37 @@ class ContextBuilder {
       personality: "auri_classic",
     );
 
-    // TIMEZONE FIX (sin plugin)
-    final tz = DateTime.now().timeZoneName;
-
     return AuriContextPayload(
       weather: weatherBlock,
-      events: events,
+      events: mergedEvents,
       classes: classesJson.cast<Map<String, dynamic>>(),
       exams: examsJson.cast<Map<String, dynamic>>(),
       birthdays: birthdaysJson.cast<Map<String, dynamic>>(),
       payments: paymentsJson.cast<Map<String, dynamic>>(),
       user: user,
       prefs: prefs,
-      timezone: tz,
+      timezone: now.timeZoneName,
     );
   }
 
   static Future<void> buildAndSync() async {
     final p = await build();
+    AuriRealtime.instance.markContextReady();
     await ContextSyncService.sync(p);
   }
 
   static String? _extractBirthday(SurveyData? survey) {
     if (survey == null) return null;
-
     final b = survey.birthdays.firstWhere(
-      (e) =>
-          e.name.toLowerCase().contains("yo") ||
-          e.name.toLowerCase().contains("usuario") ||
-          e.name.toLowerCase().contains("me"),
+      (e) => e.name.toLowerCase().contains("usuario"),
       orElse: () => BirthdayEntry(name: "", day: 0, month: 0),
     );
-
     if (b.day <= 0) return null;
-
     return "${b.month.toString().padLeft(2, '0')}-${b.day.toString().padLeft(2, '0')}";
   }
 
   static List<UserTask> _buildTasksFromSurvey(SurveyData? survey) {
     final out = <UserTask>[];
-
     if (survey == null) return out;
     if (!survey.preferences.wantsWeeklyAgenda) return out;
 

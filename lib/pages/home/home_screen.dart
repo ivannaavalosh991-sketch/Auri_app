@@ -1,4 +1,5 @@
 // lib/pages/home/home_screen.dart
+import 'dart:async';
 
 import 'dart:ui';
 import 'package:flutter/material.dart';
@@ -77,8 +78,15 @@ class _HomeScreenState extends State<HomeScreen> {
     // --------------------------------------------------------------
     // 🔊 LIP SYNC — mover boca del slime
     // --------------------------------------------------------------
+    Timer? _lipThrottle;
+
     rt.addOnLip((energy) {
-      setState(() => _slimeMouthEnergy = energy);
+      if (_lipThrottle?.isActive ?? false) return;
+
+      _lipThrottle = Timer(const Duration(milliseconds: 66), () {
+        if (!mounted) return;
+        setState(() => _slimeMouthEnergy = energy);
+      });
     });
 
     // --------------------------------------------------------------

@@ -22,30 +22,37 @@ import 'package:auri_app/services/realtime/auri_realtime.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await ContextBuilder.buildAndSync();
-
-  // Avisar al WS que el contexto ya está listo
-  AuriRealtime.instance.markContextReady();
-
   await dotenv.load(fileName: ".env");
 
-  // 🔮 Inicializar memoria ANTES de Firebase
+  // 🔮 Inicializar memoria
   await AuriMemoryManager.instance.init();
 
+  // Firebase
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
+  // Notificaciones + timezone
   await setupLocalTimezone();
   await NotificationService().init();
 
+  // Survey / settings
   final isSurveyCompleted = await AppInitializer().init();
 
-  // 🔄 Primera sincronización con AuriMind (FASE 5)
-  await ContextBuilder.buildAndSync();
+  // ⚠️ ⚠️ NO sincronizamos AURI aún
+  // Esperamos a que la app se construya primero
 
   runApp(AuriApp(isSurveyCompleted: isSurveyCompleted));
 
-  // 🔄 Sync automático cada 15min
+  // 🔄 Ahora sí → sincronizamos sin bloquear el UI
+  Future.microtask(() async {
+    await ContextBuilder.buildAndSync();
+    AuriRealtime.instance.markContextReady();
+
+    // Ahora sí, se conecta el WebSocket de forma segura
+    await AuriRealtime.instance.ensureConnected();
+  });
+
+  // Sync cada 15 min (no bloquea)
   AutoSyncTimer.start();
 }
 

@@ -42,7 +42,10 @@ class AuriContextPayload {
   }
 }
 
+// ============================================================
 // WEATHER
+// ============================================================
+
 class AuriContextWeather {
   final double temp;
   final String description;
@@ -52,11 +55,16 @@ class AuriContextWeather {
   Map<String, dynamic> toJson() => {"temp": temp, "description": description};
 }
 
-// EVENT
+// ============================================================
+// EVENT  (💜 corregido con when como String ISO8601)
+// ============================================================
+
 class AuriContextEvent {
   final String title;
   final bool urgent;
-  final DateTime when;
+
+  /// Siempre String en ISO8601 (backend lo pide así)
+  final String when;
 
   AuriContextEvent({
     required this.title,
@@ -64,14 +72,18 @@ class AuriContextEvent {
     required this.when,
   });
 
+  /// Ya NO convertimos aquí, porque ya viene como String
   Map<String, dynamic> toJson() => {
     "title": title,
     "urgent": urgent,
-    "when": when.toIso8601String(),
+    "when": when,
   };
 }
 
+// ============================================================
 // USER
+// ============================================================
+
 class AuriContextUser {
   final String name;
   final String? city;
@@ -93,7 +105,10 @@ class AuriContextUser {
   };
 }
 
+// ============================================================
 // PREFS
+// ============================================================
+
 class AuriContextPrefs {
   final bool shortReplies;
   final bool softVoice;

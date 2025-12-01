@@ -1,3 +1,6 @@
+// lib/auri/ui/jarvis_hud.dart
+
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:auri_app/services/realtime/auri_realtime.dart';
 
@@ -15,6 +18,12 @@ class _AuriJarvisHudState extends State<AuriJarvisHud> {
   bool _thinking = false;
   double _energy = 0.0;
 
+  // 🟣 Throttle controller
+  Timer? _throttleTimer;
+  String _pendingText = "";
+  double _pendingEnergy = 0.0;
+  bool _pendingThinking = false;
+
   @override
   void initState() {
     super.initState();
@@ -22,31 +31,52 @@ class _AuriJarvisHudState extends State<AuriJarvisHud> {
     final rt = AuriRealtime.instance;
 
     // ---------------------------------------
-    // PARTIAL → texto mientras piensa
-    // ---------------------------------------
     rt.addOnPartial((txt) {
-      setState(() {
-        _thinkingText = txt;
-        _thinking = true;
-      });
+      _pendingText = txt;
+      _pendingThinking = true;
+      _scheduleRebuild();
     });
 
-    // ---------------------------------------
-    // THINKING → estado del cerebro
-    // ---------------------------------------
     rt.addOnThinking((state) {
-      setState(() {
-        _thinking = state;
-        if (!state) _thinkingText = "";
-      });
+      _pendingThinking = state;
+      if (!state) _pendingText = "";
+      _scheduleRebuild();
     });
 
-    // ---------------------------------------
-    // LIP SYNC → energía de la boca
-    // ---------------------------------------
     rt.addOnLip((e) {
-      setState(() => _energy = e);
+      _pendingEnergy = e;
+      _scheduleRebuild();
       widget.onLipSync?.call(e);
+    });
+  }
+
+  // 🟣 15 FPS throttle
+  void _scheduleRebuild() {
+    if (_throttleTimer != null && _throttleTimer!.isActive) return;
+
+    _throttleTimer = Timer(const Duration(milliseconds: 66), () {
+      if (!mounted) return;
+
+      setState(() {
+        _thinkingText = _pendingText;
+        _thinking = _pendingThinking;
+        _energy = _pendingEnergy;
+      });
+    });
+  }
+
+  Timer? _hudThrottle;
+
+  void _scheduleHudUpdate() {
+    if (_hudThrottle?.isActive ?? false) return;
+
+    _hudThrottle = Timer(const Duration(milliseconds: 66), () {
+      if (!mounted) return;
+      setState(() {
+        _thinking = _pendingThinking;
+        _thinkingText = _pendingText;
+        _energy = _pendingEnergy;
+      });
     });
   }
 
@@ -93,7 +123,7 @@ class _AuriJarvisHudState extends State<AuriJarvisHud> {
                 ),
                 const Spacer(),
 
-                // Energía de voz
+                // Energy bar
                 AnimatedContainer(
                   duration: const Duration(milliseconds: 120),
                   width: 52,

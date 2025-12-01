@@ -25,21 +25,22 @@ class AuriRealtime {
 
   Timer? _retryTimer;
   Timer? _heartbeat;
-  bool _contextReady = false;
 
+  bool _contextReady = false;
   void markContextReady() {
+    print("🟢 Context READY → ya podemos conectar WS");
     _contextReady = true;
   }
 
-  // Dominio del backend Railway
+  // Dominio Railway
   static const String _host = "auri-backend-production-ef14.up.railway.app";
 
-  // ---------------- MIC STREAM ----------------
+  // MIC STREAM
   final StreamController<Uint8List> _micStream =
       StreamController<Uint8List>.broadcast();
   StreamSink<Uint8List> get micSink => _micStream.sink;
 
-  // ---------------- CALLBACKS ----------------
+  // CALLBACKS
   final _onPartial = <void Function(String)>[];
   final _onFinal = <void Function(String)>[];
   final _onThinking = <void Function(bool)>[];
@@ -53,22 +54,24 @@ class AuriRealtime {
   void addOnAction(void Function(Map<String, dynamic>) f) => _onAction.add(f);
 
   // =========================================================
-  // CONEXIÓN
+  // CONEXIÓN SEGURA (NO BLOQUEA LA UI)
   // =========================================================
   Future<void> ensureConnected() async {
-    if (_connected || _connecting) return;
+    if (_connected || _connecting) {
+      print("🔄 WS ya está conectado o conectando…");
+      return;
+    }
 
-    // ESPERAR HASTA QUE EL CONTEXTO ESTÉ LISTO
+    print("⏳ Esperando a que el contexto esté listo…");
+
     int waited = 0;
-
     while (!_contextReady && waited < 3000) {
       await Future.delayed(const Duration(milliseconds: 100));
       waited += 100;
     }
 
-    // si luego de 3s el contexto sigue sin estar listo → no conectamos
     if (!_contextReady) {
-      print("❌ No se conectó WS porque el contexto no está listo");
+      print("❌ No conectamos WS (contexto no listo)");
       return;
     }
 
@@ -78,65 +81,82 @@ class AuriRealtime {
   Future<void> connect() async {
     if (_connected || _connecting) return;
 
-    // Construcción segura de URL WebSocket para evitar el puerto :0
+    _connecting = true;
+
     final url = Uri(scheme: "wss", host: _host, path: "/realtime").toString();
 
-    print("🔌 WS conectando → $url");
-
-    _connecting = true;
+    print("🔌 Conectando a WS → $url");
 
     try {
       _ch = WebSocketChannel.connect(Uri.parse(url));
+
       _connected = true;
       _connecting = false;
-      print("🟢 WS conectado");
 
-      // HELLO
+      print("🟢 WS conectado exitosamente");
+
       _sendJson({
         "type": "client_hello",
         "client": "auri_app",
         "version": "1.0.0",
       });
 
-      // enviar audio del micro al WS
+      // Escuchar chunks de micrófono
       _micStream.stream.listen((bytes) {
-        if (_connected) _ch?.sink.add(bytes);
+        if (_connected) {
+          _ch?.sink.add(bytes);
+        }
       });
 
-      // heartbeat
+      // Heartbeat
       _heartbeat?.cancel();
       _heartbeat = Timer.periodic(
         const Duration(seconds: 20),
         (_) => _sendJson({"type": "ping"}),
       );
 
-      // escuchar mensajes
+      // Escuchar mensajes
       _ch!.stream.listen(
         _onWsMessage,
         onDone: _handleClose,
-        onError: (_) => _handleClose(),
+        onError: (err) {
+          print("❌ WS error: $err");
+          _handleClose();
+        },
       );
     } catch (e) {
-      print("❌ Error WS: $e");
+      print("❌ Error al conectar WS: $e");
       _connected = false;
       _connecting = false;
       _scheduleReconnect();
     }
   }
 
+  // =========================================================
+  // CIERRE CONTROLADO
+  // =========================================================
   void _handleClose() {
-    print("🔌 WS cerrado");
+    print("🔌 WS cerrado por el servidor");
+
     _connected = false;
-    _scheduleReconnect();
+    _heartbeat?.cancel();
+
+    if (!_connecting) {
+      _scheduleReconnect();
+    }
   }
 
   void _scheduleReconnect() {
     if (_retryTimer != null) return;
 
+    print("⛔ WS desconectado, reintentando en 3s…");
+
     _retryTimer = Timer(const Duration(seconds: 3), () {
-      print("🔄 Reintentando WS…");
       _retryTimer = null;
-      connect();
+      if (!_connected && !_connecting && _contextReady) {
+        print("🔄 Intentando reconectar WS…");
+        connect();
+      }
     });
   }
 
@@ -148,6 +168,8 @@ class AuriRealtime {
   }
 
   // =========================================================
+  // COMANDOS
+  // =========================================================
   void startSession() => _sendJson({"type": "start_session"});
   void endAudio() => _sendJson({"type": "audio_end"});
   void sendText(String t) => _sendJson({"type": "text_command", "text": t});
@@ -156,7 +178,7 @@ class AuriRealtime {
   // MENSAJES DEL BACKEND
   // =========================================================
   Future<void> _onWsMessage(dynamic data) async {
-    // AUDIO MP3 STREAM
+    // AUDIO STREAM (MP3)
     if (data is List<int>) {
       Uint8List bytes = Uint8List.fromList(data);
       await AuriTtsStreamPlayer.instance.addChunk(bytes);
@@ -171,6 +193,8 @@ class AuriRealtime {
       print("⚠ JSON inválido recibido");
       return;
     }
+
+    print("📩 WS MSG: $msg");
 
     switch (msg["type"]) {
       case "reply_partial":
@@ -210,12 +234,12 @@ class AuriRealtime {
         break;
 
       default:
-        print("ℹ Evento desconocido: $msg");
+        print("⚠ Evento desconocido: $msg");
     }
   }
 
   // =========================================================
-  // ACTIONS BRIDGE
+  // ACTIONS
   // =========================================================
   Future<void> _runAction(String? action, dynamic payload) async {
     if (action == null) return;
@@ -238,16 +262,13 @@ class AuriRealtime {
     }
   }
 
-  // ---------------------------------------
   // Crear recordatorio desde backend
-  // ---------------------------------------
   Future<void> _bridgeCreateReminder(dynamic payload) async {
     if (payload == null) return;
 
     try {
       final title = payload["title"];
       final dtIso = payload["datetime"];
-
       if (title == null || dtIso == null) return;
 
       final r = ReminderHive(
@@ -266,9 +287,7 @@ class AuriRealtime {
     }
   }
 
-  // ---------------------------------------
-  // Borrar recordatorio por título aproximado
-  // ---------------------------------------
+  // Borrar recordatorio
   Future<void> _bridgeDeleteReminder(dynamic payload) async {
     if (payload == null) return;
 
@@ -276,11 +295,16 @@ class AuriRealtime {
       final title = payload["title"];
       if (title == null) return;
 
+      final search = title.toString().toLowerCase().trim();
+      if (search.isEmpty) return;
+
       final all = await ReminderController.getAll();
 
       ReminderHive? match;
       for (final r in all) {
-        if (r.title.toLowerCase().contains(title.toLowerCase())) {
+        final t = r.title.toLowerCase();
+
+        if (t.contains(search) || search.contains(t)) {
           match = r;
           break;
         }
