@@ -46,21 +46,19 @@ class _HomeScreenState extends State<HomeScreen> {
 
   List<ReminderHive> _upcoming = [];
 
-  @override
-  void initState() {
-    super.initState();
+  Future<void> _initAsync() async {
+    // 1) Construir y sincronizar contexto
+    await ContextBuilder.buildAndSync();
 
-    // 🔄 justo al abrir el HomeScreen sincronizamos
-    ContextBuilder.buildAndSync();
+    // 2) Marcar contexto listo
+    AuriRealtime.instance.markContextReady();
 
-    // 🔌 Conectar al backend de Render
-    AuriRealtime.instance.ensureConnected();
+    // 3) Conectar WebSocket
+    await AuriRealtime.instance.ensureConnected();
 
     final rt = AuriRealtime.instance;
 
-    // --------------------------------------------------------------
-    // JARVIS TEXT EVENTS
-    // --------------------------------------------------------------
+    // 4) Eventos
     rt.addOnPartial((txt) {
       setState(() => _thinkingText = txt);
     });
@@ -69,41 +67,37 @@ class _HomeScreenState extends State<HomeScreen> {
       print("💬 Respuesta final: $txt");
     });
 
-    // STATES: thinking / idle
     rt.addOnThinking((isThinking) {
       SlimeMoodEngine.setVoiceState(isThinking ? "thinking" : "idle");
       if (!isThinking) setState(() => _thinkingText = "");
     });
 
-    // --------------------------------------------------------------
-    // 🔊 LIP SYNC — mover boca del slime
-    // --------------------------------------------------------------
     Timer? _lipThrottle;
-
     rt.addOnLip((energy) {
       if (_lipThrottle?.isActive ?? false) return;
-
       _lipThrottle = Timer(const Duration(milliseconds: 66), () {
         if (!mounted) return;
         setState(() => _slimeMouthEnergy = energy);
       });
     });
 
-    // --------------------------------------------------------------
-    // 🎬 ACTIONS — comandos especiales del backend
-    // --------------------------------------------------------------
     rt.addOnAction((data) {
       print("⚡ Acción recibida: $data");
-      // ejemplo:
       if (data["action"] == "open_weather") {
         Navigator.pushNamed(context, AppRoutes.weatherPage);
       }
     });
 
-    // ----------------------------------------------
-    // Cargar datos
-    // ----------------------------------------------
-    _loadData();
+    // 5) Cargar datos locales
+    await _loadData();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Lanzamos la inicialización asíncrona
+    _initAsync();
   }
 
   // ------------------------------------------------------------
