@@ -16,40 +16,44 @@ import 'package:auri_app/pages/survey/storage/survey_storage.dart';
 import 'package:auri_app/pages/survey/models/survey_models.dart';
 
 class ContextBuilder {
-  /// Construye el paquete maestro para enviar al backend.
+  // ============================================================
+  // BUILD MASTER PAYLOAD
+  // ============================================================
   static Future<AuriContextPayload> build() async {
-    // -------------------------------
-    // 1. USER PROFILE
-    // -------------------------------
     final survey = await SurveyStorage.loadSurvey();
-    final userName = survey?.profile.name ?? "Usuario";
-    final userCity = survey?.profile.city ?? "San José";
+    final now = DateTime.now();
 
-    final user = AuriContextUser(name: userName, city: userCity);
+    // ========================================================
+    // USER
+    // ========================================================
+    final user = AuriContextUser(
+      name: survey?.profile.name ?? "Usuario",
+      city: survey?.profile.city ?? "San José",
+      occupation: survey?.profile.occupation,
+      birthday: _extractBirthday(survey),
+    );
 
-    // -------------------------------
-    // 2. WEATHER
-    // -------------------------------
+    // ========================================================
+    // WEATHER
+    // ========================================================
     AuriContextWeather? weatherBlock;
 
     try {
-      final WeatherModel w = await WeatherService().getWeather(userCity);
+      final WeatherModel w = await WeatherService().getWeather(
+        survey?.profile.city ?? "San José",
+      );
 
       weatherBlock = AuriContextWeather(
         temp: w.temperature,
         description: w.description,
       );
-    } catch (e) {
-      print("⚠ Error obteniendo clima: $e");
+    } catch (_) {
       weatherBlock = null;
     }
 
-    // -------------------------------
-    // 3. EVENTS (pagos, cumpleaños, agenda)
-    // -------------------------------
-    final now = DateTime.now();
-
-    // 🔥 reconstruir tasks como en SurveyController
+    // ========================================================
+    // AUTO EVENTS (pagos + cumple + agenda)
+    // ========================================================
     final List<UserTask> tasks = _buildTasksFromSurvey(survey);
 
     final auto = AutoReminderServiceV7.generateAll(
@@ -62,70 +66,104 @@ class ContextBuilder {
       now: now,
     );
 
-    // Convertimos ReminderAuto → AuriContextEvent
     final events = auto
         .map(
           (a) => AuriContextEvent(title: a.title, urgent: false, when: a.date),
         )
         .toList();
 
-    // -------------------------------
-    // 4. PREFERENCIAS / MEMORIA LOCAL
-    // -------------------------------
+    // ========================================================
+    // RAW: CLASSES, EXAMS, BIRTHDAYS, PAYMENTS
+    // ========================================================
+    final classesJson = survey?.classes.map((e) => e.toJson()).toList() ?? [];
+
+    final examsJson = survey?.exams.map((e) => e.toJson()).toList() ?? [];
+
+    final birthdaysJson =
+        survey?.birthdays.map((e) => e.toJson()).toList() ?? [];
+
+    final paymentsJson = [
+      ...(survey?.basicPayments.map((e) => e.toJson()) ?? []),
+      ...(survey?.extraPayments.map((e) => e.toJson()) ?? []),
+    ];
+
+    // ========================================================
+    // PREFS (survey + memory)
+    // ========================================================
     final prefsMemory = AuriMemoryManager.instance.search("pref");
 
-    final hasShortReplies = prefsMemory.any(
+    final shortReplies = prefsMemory.any(
       (m) => m.value.contains("respuestas cortas"),
     );
 
     final softVoice = prefsMemory.any((m) => m.value.contains("voz_suave"));
 
-    final personality = "auri_classic"; // luego será dinámico
+    final personality = "auri_classic";
 
     final prefs = AuriContextPrefs(
-      shortReplies: hasShortReplies,
+      shortReplies: shortReplies,
       softVoice: softVoice,
       personality: personality,
     );
 
-    // -------------------------------
-    // 5. ENSAMBLAR PAYLOAD
-    // -------------------------------
+    // ========================================================
+    // BUILD COMPLETE PAYLOAD
+    // ========================================================
     return AuriContextPayload(
       weather: weatherBlock,
       events: events,
+      classes: classesJson,
+      exams: examsJson,
+      birthdays: birthdaysJson,
+      payments: paymentsJson,
       user: user,
       prefs: prefs,
     );
   }
 
-  /// Construye y sincroniza automáticamente con el backend.
+  // ============================================================
+  // SYNC AUTOMÁTICO
+  // ============================================================
   static Future<void> buildAndSync() async {
     final payload = await build();
     await ContextSyncService.sync(payload);
   }
 
   // ============================================================
-  // 🔧 Helpers internos (clases → DateTime, exámenes → DateTime)
+  // HELPERS
   // ============================================================
+  static String? _extractBirthday(SurveyData? survey) {
+    if (survey == null) return null;
+
+    final b = survey.birthdays.firstWhere(
+      (e) =>
+          e.name.toLowerCase().contains("yo") ||
+          e.name.toLowerCase().contains("usuario") ||
+          e.name.toLowerCase().contains("me"),
+      orElse: () => BirthdayEntry(name: "", day: 0, month: 0),
+    );
+
+    if (b.day <= 0) return null;
+
+    return "${b.month.toString().padLeft(2, '0')}-${b.day.toString().padLeft(2, '0')}";
+  }
 
   static List<UserTask> _buildTasksFromSurvey(SurveyData? survey) {
     final out = <UserTask>[];
 
     if (survey == null) return out;
-
     if (!survey.preferences.wantsWeeklyAgenda) return out;
 
-    // CLASES
+    // CLASES → próximos días
     for (final c in survey.classes) {
       out.add(UserTask(_parseClassDate(c)));
     }
 
-    // EXÁMENES
+    // EXÁMENES → fecha exacta
     for (final e in survey.exams) {
       final dt =
           DateTime.tryParse("${e.date} ${e.time}") ??
-          DateTime.now().add(Duration(days: 1));
+          DateTime.now().add(const Duration(days: 1));
       out.add(UserTask(dt));
     }
 

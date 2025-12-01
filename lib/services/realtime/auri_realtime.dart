@@ -26,6 +26,9 @@ class AuriRealtime {
   Timer? _retryTimer;
   Timer? _heartbeat;
 
+  // Dominio del backend Railway
+  static const String _host = "auri-backend-production-ef14.up.railway.app";
+
   // ---------------- MIC STREAM ----------------
   final StreamController<Uint8List> _micStream =
       StreamController<Uint8List>.broadcast();
@@ -55,7 +58,9 @@ class AuriRealtime {
   Future<void> connect() async {
     if (_connected || _connecting) return;
 
-    final url = "wss://auri-backend-production-ef14.up.railway.app/realtime";
+    // Construcción segura de URL WebSocket para evitar el puerto :0
+    final url = Uri(scheme: "wss", host: _host, path: "/realtime").toString();
+
     print("🔌 WS conectando → $url");
 
     _connecting = true;
@@ -131,7 +136,7 @@ class AuriRealtime {
   // MENSAJES DEL BACKEND
   // =========================================================
   Future<void> _onWsMessage(dynamic data) async {
-    // AUDIO MP3
+    // AUDIO MP3 STREAM
     if (data is List<int>) {
       Uint8List bytes = Uint8List.fromList(data);
       await AuriTtsStreamPlayer.instance.addChunk(bytes);
@@ -148,13 +153,12 @@ class AuriRealtime {
     }
 
     switch (msg["type"]) {
-      // ---------------- TEXT ----------------
       case "reply_partial":
         for (final f in _onPartial) f(msg["text"] ?? "");
         break;
 
       case "reply_final":
-        for (final f in _onPartial) f(""); // limpiar parcial
+        for (final f in _onPartial) f("");
         for (final f in _onFinal) f(msg["text"] ?? "");
         break;
 
@@ -162,7 +166,6 @@ class AuriRealtime {
         for (final f in _onFinal) f(msg["text"] ?? "");
         break;
 
-      // ---------------- THINKING ----------------
       case "thinking":
         final isThinking = msg["state"] == true;
         for (final f in _onThinking) f(isThinking);
@@ -172,19 +175,16 @@ class AuriRealtime {
         }
         break;
 
-      // ---------------- LIP ----------------
       case "lip_sync":
         final e = (msg["energy"] ?? 0).toDouble();
         for (final f in _onLip) f(e);
         break;
 
-      // ---------------- ACTIONS ----------------
       case "action":
-        for (final f in _onAction) f(msg); // UI listeners
+        for (final f in _onAction) f(msg);
         await _runAction(msg["action"], msg["payload"]);
         break;
 
-      // ---------------- MP3 END ----------------
       case "tts_end":
         await AuriTtsStreamPlayer.instance.finalize();
         break;
@@ -195,7 +195,7 @@ class AuriRealtime {
   }
 
   // =========================================================
-  // ACTIONS BRIDGE (FASE 8)
+  // ACTIONS BRIDGE
   // =========================================================
   Future<void> _runAction(String? action, dynamic payload) async {
     if (action == null) return;
@@ -230,13 +230,11 @@ class AuriRealtime {
 
       if (title == null || dtIso == null) return;
 
-      final dt = DateTime.tryParse(dtIso);
-      if (dt == null) return;
-
       final r = ReminderHive(
         id: "${DateTime.now().millisecondsSinceEpoch}",
         title: title,
         dateIso: dtIso,
+        jsonPayload: jsonEncode(payload),
       );
 
       await ReminderController.save(r);
