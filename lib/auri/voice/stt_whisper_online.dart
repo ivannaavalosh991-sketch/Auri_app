@@ -1,3 +1,6 @@
+// lib/auri/voice/stt_whisper_online.dart
+// Versión V5 compatible con Hands-Free Mode
+
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
@@ -14,7 +17,6 @@ class STTWhisperOnline {
   bool _ready = false;
   bool _recording = false;
 
-  /// 👈 FIX: Getter público para saber si está grabando
   bool get isRecording => _recording;
 
   StreamSubscription<RecordingDisposition>? _pcmTap;
@@ -22,7 +24,6 @@ class STTWhisperOnline {
   final ValueNotifier<double> amplitude = ValueNotifier(0.0);
   double lastAmplitude = 0.0;
 
-  // ---------------------------------------------------
   Future<void> init() async {
     if (_ready) return;
 
@@ -35,43 +36,30 @@ class STTWhisperOnline {
     _ready = true;
   }
 
-  // ---------------------------------------------------
   Future<void> startRecording() async {
-    await init();
-    if (_recording) return;
+    if (_recording) return; // STOP LOOP
+
+    if (!_ready) {
+      await init();
+    }
 
     await AuriRealtime.instance.ensureConnected();
     AuriRealtime.instance.startSession();
 
     print("🎤 Auri escuchando…");
-
     _recording = true;
     amplitude.value = 0;
 
-    // Limpia taps previos
     await _pcmTap?.cancel();
 
-    // ===================================================
-    // TAP DE AMPLITUD: decibeles o fallback simulado
-    // ===================================================
     _pcmTap = _rec.onProgress!.listen((event) {
-      if (event.decibels != null) {
-        final db = event.decibels!;
-        final amp = ((db + 60) / 60).clamp(0.0, 1.0);
+      final db = event.decibels ?? -50;
+      final amp = ((db + 60) / 60).clamp(0.0, 1.0);
 
-        lastAmplitude = amp;
-        amplitude.value = amp;
-      } else {
-        final amp = 0.02 + Random().nextDouble() * 0.03;
-
-        lastAmplitude = amp;
-        amplitude.value = amp;
-      }
+      lastAmplitude = amp;
+      amplitude.value = amp;
     });
 
-    // ===================================================
-    // ENVÍO DE PCM16 AL WEBSOCKET
-    // ===================================================
     await _rec.startRecorder(
       codec: Codec.pcm16,
       sampleRate: 16000,
@@ -81,7 +69,6 @@ class STTWhisperOnline {
     );
   }
 
-  // ---------------------------------------------------
   Future<void> stopRecording() async {
     if (!_recording) return;
 

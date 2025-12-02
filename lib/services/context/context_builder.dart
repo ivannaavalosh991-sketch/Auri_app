@@ -13,6 +13,7 @@ import 'package:auri_app/controllers/reminder/reminder_controller.dart';
 import 'manual_reminder_classifier.dart';
 import 'manual_reminder_merger.dart';
 import 'package:auri_app/services/realtime/auri_realtime.dart';
+import 'package:auri_app/services/auth_service.dart';
 
 class ContextBuilder {
   static Future<AuriContextPayload> build() async {
@@ -22,11 +23,19 @@ class ContextBuilder {
     final now = DateTime.now().toLocal();
 
     // USER
+    final firebaseUser = AuthService.instance.currentUser;
+
     final user = AuriContextUser(
-      name: survey?.profile.name ?? "Usuario",
+      name:
+          survey?.profile.name ??
+          firebaseUser?.email?.split("@").first ??
+          "Usuario",
       city: survey?.profile.city ?? "San José",
       occupation: survey?.profile.occupation,
       birthday: _extractBirthday(survey),
+
+      /// 🔥 Enviar UID real al backend
+      firebaseUid: firebaseUser?.uid ?? "guest",
     );
 
     // WEATHER

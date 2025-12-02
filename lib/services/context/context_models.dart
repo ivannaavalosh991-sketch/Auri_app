@@ -88,18 +88,21 @@ class AuriContextEvent {
 // ============================================================
 // USER
 // ============================================================
-
 class AuriContextUser {
   final String name;
   final String? city;
   final String? occupation;
   final String? birthday;
 
+  /// NUEVO → UID REAL DEL USUARIO EN FIREBASE
+  final String firebaseUid;
+
   AuriContextUser({
     required this.name,
     this.city,
     this.occupation,
     this.birthday,
+    required this.firebaseUid,
   });
 
   Map<String, dynamic> toJson() => {
@@ -107,6 +110,7 @@ class AuriContextUser {
     "city": city,
     "occupation": occupation,
     "birthday": birthday,
+    "firebase_uid": firebaseUid,
   };
 }
 

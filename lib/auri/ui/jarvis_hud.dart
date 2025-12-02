@@ -1,4 +1,5 @@
 // lib/auri/ui/jarvis_hud.dart
+// V5 — HUD inteligente con Hands-Free toggle + LipSync + Thinking
 
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -18,11 +19,12 @@ class _AuriJarvisHudState extends State<AuriJarvisHud> {
   bool _thinking = false;
   double _energy = 0.0;
 
-  // 🟣 Throttle controller
-  Timer? _throttleTimer;
+  Timer? _throttle;
   String _pendingText = "";
   double _pendingEnergy = 0.0;
   bool _pendingThinking = false;
+
+  bool _handsFree = false;
 
   @override
   void initState() {
@@ -30,52 +32,37 @@ class _AuriJarvisHudState extends State<AuriJarvisHud> {
 
     final rt = AuriRealtime.instance;
 
-    // ---------------------------------------
+    _handsFree = rt.handsFree;
+
     rt.addOnPartial((txt) {
       _pendingText = txt;
       _pendingThinking = true;
-      _scheduleRebuild();
+      _schedule();
     });
 
     rt.addOnThinking((state) {
       _pendingThinking = state;
       if (!state) _pendingText = "";
-      _scheduleRebuild();
+      _schedule();
     });
 
     rt.addOnLip((e) {
       _pendingEnergy = e;
-      _scheduleRebuild();
       widget.onLipSync?.call(e);
+      _schedule();
     });
   }
 
-  // 🟣 15 FPS throttle
-  void _scheduleRebuild() {
-    if (_throttleTimer != null && _throttleTimer!.isActive) return;
+  void _schedule() {
+    if (_throttle?.isActive ?? false) return;
 
-    _throttleTimer = Timer(const Duration(milliseconds: 66), () {
+    _throttle = Timer(const Duration(milliseconds: 66), () {
       if (!mounted) return;
-
       setState(() {
         _thinkingText = _pendingText;
         _thinking = _pendingThinking;
         _energy = _pendingEnergy;
-      });
-    });
-  }
-
-  Timer? _hudThrottle;
-
-  void _scheduleHudUpdate() {
-    if (_hudThrottle?.isActive ?? false) return;
-
-    _hudThrottle = Timer(const Duration(milliseconds: 66), () {
-      if (!mounted) return;
-      setState(() {
-        _thinking = _pendingThinking;
-        _thinkingText = _pendingText;
-        _energy = _pendingEnergy;
+        _handsFree = AuriRealtime.instance.handsFree;
       });
     });
   }
@@ -86,25 +73,25 @@ class _AuriJarvisHudState extends State<AuriJarvisHud> {
 
     return AnimatedOpacity(
       duration: const Duration(milliseconds: 250),
-      opacity: _thinking ? 1.0 : 0.7,
+      opacity: _thinking ? 1.0 : 0.8,
       child: Container(
-        width: 240,
+        width: 260,
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(18),
-          color: Colors.white.withOpacity(0.04),
+          color: Colors.white.withOpacity(0.03),
           border: Border.all(color: cs.primary.withOpacity(0.25)),
           boxShadow: [
             BoxShadow(
-              color: cs.primary.withOpacity(0.35 + _energy * 0.3),
-              blurRadius: 22 + (_energy * 18),
-              spreadRadius: 2,
+              color: cs.primary.withOpacity(0.3 + _energy * 0.35),
+              blurRadius: 20 + (_energy * 18),
             ),
           ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // HEADER
             Row(
               children: [
                 Icon(
@@ -123,24 +110,19 @@ class _AuriJarvisHudState extends State<AuriJarvisHud> {
                 ),
                 const Spacer(),
 
-                // Energy bar
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 120),
-                  width: 52,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(999),
-                    color: cs.primary.withOpacity(0.18),
-                  ),
-                  alignment: Alignment.centerLeft,
-                  child: FractionallySizedBox(
-                    widthFactor: (_energy.clamp(0.05, 1.0)),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(999),
-                        color: cs.primary,
-                      ),
-                    ),
+                // 🟣 BOTÓN HANDS-FREE
+                GestureDetector(
+                  onTap: () async {
+                    final val = !AuriRealtime.instance.handsFree;
+                    await AuriRealtime.instance.setHandsFree(val);
+                    setState(() => _handsFree = val);
+                  },
+                  child: Icon(
+                    _handsFree ? Icons.hearing : Icons.hearing_disabled,
+                    color: _handsFree
+                        ? cs.primary
+                        : cs.onSurface.withOpacity(0.4),
+                    size: 20,
                   ),
                 ),
               ],
@@ -153,9 +135,9 @@ class _AuriJarvisHudState extends State<AuriJarvisHud> {
                 maxLines: 3,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  color: cs.onSurface.withOpacity(0.8),
-                  fontSize: 11.5,
-                  height: 1.25,
+                  color: cs.onSurface.withOpacity(0.75),
+                  fontSize: 12,
+                  height: 1.22,
                 ),
               ),
             ],

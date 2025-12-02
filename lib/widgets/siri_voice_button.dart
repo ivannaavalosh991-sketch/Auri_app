@@ -1,6 +1,6 @@
 // lib/widgets/siri_voice_button.dart
+// V5 — Push-to-Talk + Hands-Free aware
 
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:auri_app/auri/voice/voice_session_controller.dart';
 import 'package:auri_app/auri/voice/stt_whisper_online.dart';
@@ -14,8 +14,8 @@ class SiriVoiceButton extends StatefulWidget {
 class _SiriVoiceButtonState extends State<SiriVoiceButton>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
+
   double amp = 0.0;
-  int _tapCount = 0;
   bool _isHeld = false;
 
   @override
@@ -27,9 +27,9 @@ class _SiriVoiceButtonState extends State<SiriVoiceButton>
       duration: const Duration(seconds: 2),
     )..repeat();
 
-    /// 🔮 Escuchar amplitud sin timers → ultra responsive
     STTWhisperOnline.instance.amplitude.addListener(() {
-      setState(() => amp = STTWhisperOnline.instance.amplitude.value);
+      if (mounted)
+        setState(() => amp = STTWhisperOnline.instance.amplitude.value);
     });
   }
 
@@ -39,29 +39,31 @@ class _SiriVoiceButtonState extends State<SiriVoiceButton>
     super.dispose();
   }
 
+  bool get _handsFree => AuriRealtime.instance.handsFree;
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
 
     return GestureDetector(
       onTap: () async {
-        _tapCount++;
-        Future.delayed(const Duration(milliseconds: 250), () async {
-          if (_tapCount >= 2) {
-            VoiceSessionController.cancel();
-          } else {
-            VoiceSessionController.startRecording();
-          }
-          _tapCount = 0;
-        });
+        if (_handsFree) {
+          // 🟣 HF activo → Tap desactiva HF
+          await AuriRealtime.instance.setHandsFree(false);
+          return;
+        }
+        // Push-to-Talk
+        await VoiceSessionController.startRecording();
       },
 
       onLongPressStart: (_) async {
+        if (_handsFree) return;
         _isHeld = true;
         await VoiceSessionController.startRecording();
       },
 
       onLongPressEnd: (_) async {
+        if (_handsFree) return;
         if (_isHeld) {
           _isHeld = false;
           await VoiceSessionController.stopRecording();
@@ -79,10 +81,19 @@ class _SiriVoiceButtonState extends State<SiriVoiceButton>
             child: Stack(
               alignment: Alignment.center,
               children: [
-                _wave(amp, 1.10, t, cs.primary.withOpacity(0.20)),
-                _wave(amp, 0.95, t + 0.33, cs.primary.withOpacity(0.30)),
-                _wave(amp, 0.80, t + 0.66, cs.primary.withOpacity(0.55)),
+                // Outer glow
+                _ring(
+                  amp,
+                  1.15,
+                  t,
+                  _handsFree
+                      ? Colors.greenAccent.withOpacity(0.35)
+                      : cs.primary.withOpacity(0.30),
+                ),
+                _ring(amp, 0.95, t + 0.33, cs.primary.withOpacity(0.22)),
+                _ring(amp, 0.80, t + 0.66, cs.primary.withOpacity(0.45)),
 
+                // Main button
                 Container(
                   width: 70,
                   height: 70,
@@ -90,20 +101,26 @@ class _SiriVoiceButtonState extends State<SiriVoiceButton>
                     shape: BoxShape.circle,
                     gradient: RadialGradient(
                       colors: [
-                        cs.primary.withOpacity(0.85),
-                        cs.primary.withOpacity(0.40),
+                        _handsFree
+                            ? Colors.greenAccent.withOpacity(0.85)
+                            : cs.primary.withOpacity(0.85),
+                        _handsFree
+                            ? Colors.greenAccent.withOpacity(0.45)
+                            : cs.primary.withOpacity(0.40),
                       ],
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: cs.primary.withOpacity(0.7),
-                        blurRadius: 30,
+                        color: _handsFree
+                            ? Colors.greenAccent.withOpacity(0.7)
+                            : cs.primary.withOpacity(0.7),
+                        blurRadius: 32,
                         spreadRadius: 2,
                       ),
                     ],
                   ),
-                  child: const Icon(
-                    Icons.mic_rounded,
+                  child: Icon(
+                    _handsFree ? Icons.hearing : Icons.mic_rounded,
                     color: Colors.white,
                     size: 32,
                   ),
@@ -116,7 +133,7 @@ class _SiriVoiceButtonState extends State<SiriVoiceButton>
     );
   }
 
-  Widget _wave(double amp, double base, double anim, Color color) {
+  Widget _ring(double amp, double base, double anim, Color color) {
     return Transform.scale(
       scale: base + (amp * 0.45) + (anim * 0.05),
       child: Container(
