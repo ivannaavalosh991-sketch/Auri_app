@@ -68,7 +68,7 @@ class OutfitRecommendationGlass extends StatelessWidget {
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
           child: Container(
-            padding: EdgeInsets.all(18),
+            padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.06),
               borderRadius: BorderRadius.circular(26),
@@ -77,24 +77,28 @@ class OutfitRecommendationGlass extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                /// ICON
-                Text(_icon(), style: TextStyle(fontSize: 36)),
-                SizedBox(height: 8),
+                // ICON
+                Text(_icon(), style: const TextStyle(fontSize: 36)),
+                const SizedBox(height: 8),
 
-                /// TITLE
+                // TITLE
                 Text(
                   _title(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
                     color: cs.onSurface,
                   ),
                 ),
-                SizedBox(height: 5),
+                const SizedBox(height: 5),
 
-                /// DESCRIPTION
+                // DESCRIPTION
                 Text(
                   _description(),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 14,
                     color: cs.onSurface.withOpacity(0.75),

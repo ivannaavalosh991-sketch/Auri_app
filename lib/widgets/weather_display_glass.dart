@@ -1,4 +1,3 @@
-// FIX: WeatherDisplayGlass Overflow
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:auri_app/models/weather_model.dart';
@@ -27,7 +26,6 @@ class WeatherDisplayGlass extends StatelessWidget {
               width: 1.3,
             ),
           ),
-
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -42,16 +40,17 @@ class WeatherDisplayGlass extends StatelessWidget {
                   ),
                 ),
               ),
-
               const SizedBox(height: 6),
 
+              // 🔹 Descripción limitada
               Text(
                 weather.description,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 14,
                   color: cs.onSurface.withOpacity(0.65),
                 ),
-                overflow: TextOverflow.ellipsis,
               ),
 
               const SizedBox(height: 16),
@@ -74,13 +73,20 @@ class WeatherDisplayGlass extends StatelessWidget {
 
               Row(
                 children: [
-                  Icon(Icons.air, color: Colors.cyanAccent, size: 18),
+                  const Icon(Icons.air, size: 18),
                   const SizedBox(width: 6),
-                  Text(
-                    "${weather.windSpeed} m/s  •  ${weather.humidity}% humedad",
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: cs.onSurface.withOpacity(0.65),
+
+                  // 🔥 Esto evita overflows horizontales
+                  Expanded(
+                    child: Text(
+                      "${weather.windSpeed} m/s  •  ${weather.humidity}% humedad",
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      softWrap: false,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: cs.onSurface.withOpacity(0.65),
+                      ),
                     ),
                   ),
                 ],

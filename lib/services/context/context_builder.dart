@@ -51,7 +51,7 @@ class ContextBuilder {
       ...(survey?.extraPayments.map((e) => e.toJson()) ?? []),
     ];
 
-    // AUTO REMINDERS – TRIM TO 30 DAYS
+    // AUTO REMINDERS – TRIM TO 30 DÍAS
     final tasks = _buildTasksFromSurvey(survey);
 
     final auto = AutoReminderServiceV7.generateAll(
@@ -120,7 +120,7 @@ class ContextBuilder {
       user: user,
       prefs: prefs,
 
-      // 🔹 NUEVO
+      // 🔹 NUEVO — CAMPOS DE TIEMPO
       timezone: now.timeZoneName,
       currentTimeIso: now.toIso8601String(),
       currentTimePretty: currentTimePretty,
@@ -130,6 +130,7 @@ class ContextBuilder {
 
   static Future<void> buildAndSync() async {
     final p = await build();
+    // Este markContextReady es solo del lado app; el "real" lo marca el backend
     AuriRealtime.instance.markContextReady();
     await ContextSyncService.sync(p);
   }
