@@ -14,6 +14,9 @@ class STTWhisperOnline {
   bool _ready = false;
   bool _recording = false;
 
+  /// 👈 FIX: Getter público para saber si está grabando
+  bool get isRecording => _recording;
+
   StreamSubscription<RecordingDisposition>? _pcmTap;
 
   final ValueNotifier<double> amplitude = ValueNotifier(0.0);
@@ -53,15 +56,12 @@ class STTWhisperOnline {
     // ===================================================
     _pcmTap = _rec.onProgress!.listen((event) {
       if (event.decibels != null) {
-        // Normalizar decibeles
         final db = event.decibels!;
         final amp = ((db + 60) / 60).clamp(0.0, 1.0);
 
         lastAmplitude = amp;
         amplitude.value = amp;
       } else {
-        // Fallback HONOR/HUAWEI: sin decibeles
-        // Le damos una amplitud muy pequeña, no 0
         final amp = 0.02 + Random().nextDouble() * 0.03;
 
         lastAmplitude = amp;

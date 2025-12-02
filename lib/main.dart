@@ -64,6 +64,7 @@ class AuriApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: AuriRealtime.navigatorKey,
       title: 'Auri Asistente',
       theme: AppTheme.darkTheme,
       debugShowCheckedModeBanner: false,
