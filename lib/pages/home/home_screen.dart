@@ -26,6 +26,8 @@ import 'package:auri_app/widgets/siri_voice_button.dart';
 import 'package:auri_app/auri/ui/jarvis_hud.dart';
 import 'package:auri_app/widgets/slime/slime_engine_widget.dart';
 
+import 'package:auri_app/services/subscription_remote_service.dart';
+
 // ROUTER
 import 'package:auri_app/routes/app_routes.dart';
 
@@ -63,6 +65,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    AuriRealtime.instance.markContextReady();
+
     _initAsync();
   }
 
@@ -81,16 +85,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _initAsync() async {
-    // 1) Siempre primero sincroniza plan
+    // 🔥 1) BACKEND → prefs
+    await SubscriptionRemoteService.syncPlanFromBackend();
+
+    // 🔥 2) prefs → Home UI
     await _syncPlanFromPrefs();
 
-    // 2) Context + realtime
+    // 3) Context + realtime (sin cambios)
     await ContextBuilder.buildAndSync();
     AuriRealtime.instance.markContextReady();
     await AuriRealtime.instance.ensureConnected();
-    _attachRealtimeListeners();
 
-    // 3) Datos UI
+    _attachRealtimeListeners();
     await _loadData();
   }
 

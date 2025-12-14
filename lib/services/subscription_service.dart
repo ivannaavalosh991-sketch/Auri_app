@@ -32,7 +32,7 @@ class SubscriptionService {
   /// 🔎 Obtener estado actual
   static Future<SubscriptionStatus> getStatus(String uid) async {
     final url = Uri.parse(
-      '${BackendConfig.baseUrl}/subscription/status?uid=$uid',
+      '${BackendConfig.baseUrl}/api/subscription/status?uid=',
     );
 
     try {

@@ -34,7 +34,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
     if (!mounted) return;
 
     // 🔥 DEVOLVEMOS EL PLAN AL HOME
-    Navigator.pop(context, _selectedPlan);
+    Navigator.pop(context);
   }
 
   @override
