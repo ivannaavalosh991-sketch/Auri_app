@@ -20,7 +20,9 @@ class SlimeMood {
 }
 
 class SlimeMoodEngine {
-  /// Genera el mood de Auri según clima + hora.
+  /// ======================================================================
+  /// 1) Estado según clima (tu implementación original)
+  /// ======================================================================
   static SlimeMood fromWeather(WeatherModel weather, DateTime now) {
     final hour = now.hour;
     final isNight = hour < 6 || hour >= 21;
@@ -74,7 +76,7 @@ class SlimeMoodEngine {
       );
     }
 
-    // 🌤️ Soleado normal
+    // 🌤️ Soleado
     if (c.contains('clear')) {
       return SlimeMood(
         baseColor: Colors.purpleAccent,
@@ -117,11 +119,83 @@ class SlimeMoodEngine {
     );
   }
 
-  // ---------------------------------------------
-  // Estados de voz (placeholder hasta usar Rive)
-  // ---------------------------------------------
+  /// ======================================================================
+  /// 2) Estado según emociones del backend AuriMind (NUEVO)
+  /// ======================================================================
+  static SlimeMood fromEmotionSnapshot(Map<String, dynamic> e) {
+    final overall = (e["overall"] ?? "neutral").toString();
+    final stress = (e["stress"] ?? 0.2) as double;
+    final energy = (e["energy"] ?? 0.5) as double;
+
+    Color color;
+    double glow;
+    double wobble;
+    String label;
+    String emoji;
+
+    switch (overall) {
+      case "happy":
+      case "excited":
+        color = Colors.purpleAccent;
+        glow = 0.9;
+        wobble = 0.7 + (energy * 0.2);
+        label = "Auri está emocionada ✨";
+        emoji = "✨";
+        break;
+
+      case "sad":
+      case "depressed":
+        color = Colors.blueGrey.shade300;
+        glow = 0.3;
+        wobble = 0.1 + (energy * 0.1);
+        label = "Auri está sintiendo tu tristeza 💜";
+        emoji = "🥺";
+        break;
+
+      case "angry":
+        color = Colors.redAccent;
+        glow = 0.7;
+        wobble = 0.2;
+        label = "Auri percibe tensión ⚡";
+        emoji = "😡";
+        break;
+
+      case "anxious":
+        color = Colors.indigoAccent;
+        glow = 0.5;
+        wobble = 0.3 + (stress * 0.4);
+        label = "Auri está preocupada por ti 🫂";
+        emoji = "😰";
+        break;
+
+      case "tired":
+      case "sleepy":
+        color = Colors.blueGrey.shade200;
+        glow = 0.2;
+        wobble = 0.1;
+        label = "Auri está con energía bajita 😴";
+        emoji = "😴";
+        break;
+
+      default:
+        color = Colors.purpleAccent;
+        glow = 0.6;
+        wobble = 0.4 + (energy * 0.2);
+        label = "Auri está contigo 💜";
+        emoji = "💜";
+    }
+
+    return SlimeMood(
+      baseColor: color,
+      glowIntensity: glow,
+      wobble: wobble,
+      label: label,
+      emoji: emoji,
+    );
+  }
+
+  /// Solo logs por ahora
   static void setVoiceState(String state) {
     print("🎙 Auri voice-state → $state");
-    // Aquí conectaremos Rive en el futuro
   }
 }

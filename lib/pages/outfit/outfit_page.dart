@@ -6,6 +6,7 @@ import 'package:auri_app/models/weather_model.dart';
 import 'package:auri_app/widgets/auri_slime_placeholder.dart';
 import 'package:auri_app/services/slime_mood_engine.dart';
 import 'package:auri_app/services/outfit_engine.dart';
+import 'package:auri_app/widgets/slime/slime_engine_widget.dart';
 
 class OutfitPage extends StatefulWidget {
   final WeatherModel weather;
@@ -113,10 +114,12 @@ class _OutfitPageState extends State<OutfitPage>
                             ),
 
                             // BASE SLIME
-                            AuriSlimePlaceholder(
-                              mouthEnergy: 0,
-                              wobble: mood.wobble,
-                              glowColor: mood.baseColor,
+                            SlimeEngineWidget(
+                              color: mood.baseColor,
+                              emotion: mood
+                                  .emoji, // usamos el emoji como estado emocional
+                              moodWobble: mood.wobble,
+                              voiceEnergy: 0, // Outfit no usa TTS
                             ),
 
                             // ACCESSORY

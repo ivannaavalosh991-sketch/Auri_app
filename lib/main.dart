@@ -20,39 +20,66 @@ import 'package:auri_app/services/context/context_builder.dart';
 import 'package:auri_app/services/context/auto_sync_timer.dart';
 import 'package:auri_app/services/realtime/auri_realtime.dart';
 
+// 🟣 Suscripciones (Provider)
+import 'package:provider/provider.dart';
+import 'package:auri_app/providers/subscription/subscription_provider.dart';
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // ===============================
+  // 1) Cargar .env (DEBE SER PRIMERO)
+  // ===============================
   await dotenv.load(fileName: ".env");
 
-  // 🔮 Inicializar memoria
+  // ===============================
+  // 2) Inicializar memoria local
+  // ===============================
   await AuriMemoryManager.instance.init();
 
-  // Firebase
+  // ===============================
+  // 3) Firebase
+  // ===============================
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
-  // Notificaciones + timezone
+  // ===============================
+  // 4) Notificaciones + zona horaria
+  // ===============================
   await setupLocalTimezone();
   await NotificationService().init();
 
-  // Survey / settings
+  // ===============================
+  // 5) Configuración inicial (survey)
+  // ===============================
   final isSurveyCompleted = await AppInitializer().init();
 
-  // ⚠️ ⚠️ NO sincronizamos AURI aún
-  // Esperamos a que la app se construya primero
+  // ===============================
+  // 6) Lanzar la UI con Provider
+  // ===============================
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(
+          create: (_) => SubscriptionProvider()..loadStatus(),
+        ),
+      ],
+      child: AuriApp(isSurveyCompleted: isSurveyCompleted),
+    ),
+  );
 
-  runApp(AuriApp(isSurveyCompleted: isSurveyCompleted));
-
-  // 🔄 Ahora sí → sincronizamos sin bloquear el UI
+  // ===============================
+  // 7) WebSocket — conectar después
+  // ===============================
   Future.microtask(() async {
     await ContextBuilder.buildAndSync();
     AuriRealtime.instance.markContextReady();
-
-    // Ahora sí, se conecta el WebSocket de forma segura
     await AuriRealtime.instance.ensureConnected();
   });
 
-  // Sync cada 15 min (no bloquea)
+  // ===============================
+  // 8) Auto-sync de contexto
+  // ===============================
   AutoSyncTimer.start();
 }
 

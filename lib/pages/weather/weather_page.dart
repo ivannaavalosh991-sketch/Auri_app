@@ -10,6 +10,7 @@ import 'package:auri_app/services/weather_service.dart';
 import 'package:auri_app/widgets/auri_slime_placeholder.dart';
 import 'package:auri_app/widgets/weather_display_glass.dart';
 import 'package:auri_app/services/slime_mood_engine.dart';
+import 'package:auri_app/widgets/slime/slime_engine_widget.dart';
 
 class WeatherPage extends StatefulWidget {
   const WeatherPage({super.key});
@@ -145,10 +146,12 @@ class _WeatherPageState extends State<WeatherPage> {
                         ],
                       ),
                     ),
-                    AuriSlimePlaceholder(
-                      mouthEnergy: 0, // no hay voz aquí
-                      wobble: mood.wobble,
-                      glowColor: mood.baseColor,
+                    SlimeEngineWidget(
+                      color: mood.baseColor,
+                      emotion:
+                          mood.emoji, // usamos el emoji como estado emocional
+                      moodWobble: mood.wobble,
+                      voiceEnergy: 0, // Outfit no usa TTS
                     ),
                   ],
                 ),

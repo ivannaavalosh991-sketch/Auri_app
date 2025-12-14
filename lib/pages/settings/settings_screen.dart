@@ -1,4 +1,3 @@
-// lib/pages/settings/settings_screen.dart
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:hive/hive.dart';
@@ -9,22 +8,19 @@ import 'package:auri_app/services/auth_service.dart';
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
+  Future<String> _getPlan() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('auri_plan') ?? 'free';
+  }
+
   Future<void> _reset(BuildContext context) async {
-    // 1. Borrar SharedPreferences
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
 
-    // 2. Borrar recordatorios (Hive)
     if (Hive.isBoxOpen('reminders')) {
-      await Hive.box('reminders').clear(); // borra solo contenidos
+      await Hive.box('reminders').clear();
     }
 
-    // Si quieres borrar todos los boxes existentes:
-    // for (var box in Hive.boxes.values) {
-    //   await box.clear();
-    // }
-
-    // 3. Redirigir al inicio
     if (context.mounted) {
       Navigator.pushNamedAndRemoveUntil(
         context,
@@ -34,35 +30,41 @@ class SettingsScreen extends StatelessWidget {
     }
   }
 
-  void _confirmReset(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (c) => AlertDialog(
-        title: const Text("¿Reiniciar configuración?"),
-        content: const Text("Esto borrará tus datos y volverás al inicio."),
-        actions: [
-          TextButton(
-            child: const Text("Cancelar"),
-            onPressed: () => Navigator.pop(c),
-          ),
-          TextButton(
-            child: const Text("Reiniciar"),
-            onPressed: () {
-              Navigator.pop(c);
-              _reset(context);
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text("Configuración")),
       body: ListView(
         children: [
+          FutureBuilder<String>(
+            future: _getPlan(),
+            builder: (context, snap) {
+              if (!snap.hasData) return const SizedBox.shrink();
+              final plan = snap.data!;
+
+              return Column(
+                children: [
+                  if (plan == 'free')
+                    ListTile(
+                      leading: const Icon(Icons.star),
+                      title: const Text("Hazte PRO"),
+                      subtitle: const Text("Desbloquea funciones premium"),
+                      onTap: () =>
+                          Navigator.pushNamed(context, AppRoutes.subscription),
+                    ),
+                  if (plan != 'free')
+                    ListTile(
+                      leading: const Icon(Icons.star),
+                      title: const Text("Administrar suscripción"),
+                      subtitle: Text("Plan actual: ${plan.toUpperCase()}"),
+                      onTap: () =>
+                          Navigator.pushNamed(context, AppRoutes.subscription),
+                    ),
+                ],
+              );
+            },
+          ),
+          const Divider(),
           ListTile(
             leading: const Icon(Icons.person),
             title: const Text("Editar mi información"),
@@ -70,17 +72,14 @@ class SettingsScreen extends StatelessWidget {
           ),
           ListTile(
             leading: const Icon(Icons.refresh),
-            title: const Text("Reiniciar configuración inicial"),
+            title: const Text("Reiniciar configuración"),
             subtitle: const Text("Borrar todos tus datos"),
-            onTap: () => _confirmReset(context),
+            onTap: () => _reset(context),
           ),
           ListTile(
             leading: const Icon(Icons.logout),
             title: const Text("Cerrar sesión"),
-            onTap: () async {
-              await AuthService.instance.signOut();
-              // AuthGate detecta user == null y vuelve al login.
-            },
+            onTap: () async => AuthService.instance.signOut(),
           ),
         ],
       ),

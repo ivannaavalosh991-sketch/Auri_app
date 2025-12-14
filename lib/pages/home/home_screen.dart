@@ -1,7 +1,5 @@
 // -------------------------------------------------------------
-// HOME SCREEN — Versión Estable V8 (FINAL)
-// Fix global anti-overflow + Weather/Outfit sizing + hora local
-// Realtime estabilizado + Ajustes Float + UI perfectamente estable
+// HOME SCREEN — Versión Estable V8.1 (patched, NO rebuild)
 // -------------------------------------------------------------
 
 import 'dart:async';
@@ -22,11 +20,11 @@ import 'package:auri_app/services/realtime/auri_realtime.dart';
 import 'package:auri_app/services/slime_mood_engine.dart';
 
 // WIDGETS
-import 'package:auri_app/widgets/auri_slime_placeholder.dart';
 import 'package:auri_app/widgets/weather_display_glass.dart';
 import 'package:auri_app/widgets/outfit_recommendation_glass.dart';
 import 'package:auri_app/widgets/siri_voice_button.dart';
 import 'package:auri_app/auri/ui/jarvis_hud.dart';
+import 'package:auri_app/widgets/slime/slime_engine_widget.dart';
 
 // ROUTER
 import 'package:auri_app/routes/app_routes.dart';
@@ -37,11 +35,12 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+// ✅ Para detectar cuando vuelves al Home (foreground) y re-sincronizar plan.
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String _userName = '';
   String _userCity = '';
+  String _plan = 'free';
 
-  String _thinkingText = "";
   double _slimeMouthEnergy = 0.0;
 
   final WeatherService _weatherService = WeatherService();
@@ -54,25 +53,86 @@ class _HomeScreenState extends State<HomeScreen> {
 
   bool _listenersAttached = false;
 
+  bool get _isPro => _plan == 'pro' || _plan == 'ultra';
+
   // ============================================================
   // INIT
   // ============================================================
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initAsync();
   }
 
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // ✅ Cuando la app vuelve al foreground, re-leemos plan por seguridad.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _syncPlanFromPrefs(); // 🔥 evita que se quede pegado
+    }
+  }
+
   Future<void> _initAsync() async {
-    await ContextBuilder.buildAndSync(); // Hora local aplicada internamente
+    // 1) Siempre primero sincroniza plan
+    await _syncPlanFromPrefs();
+
+    // 2) Context + realtime
+    await ContextBuilder.buildAndSync();
     AuriRealtime.instance.markContextReady();
     await AuriRealtime.instance.ensureConnected();
     _attachRealtimeListeners();
+
+    // 3) Datos UI
     await _loadData();
   }
 
   // ============================================================
-  // LISTENERS
+  // PLAN — SINGLE SOURCE OF TRUTH
+  // ============================================================
+  Future<void> _syncPlanFromPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedPlan = prefs.getString('auri_plan') ?? 'free';
+
+    // Normaliza por si guardaron "PRO" o "Ultra"
+    final normalized = savedPlan.trim().toLowerCase();
+
+    debugPrint("🔄 HOME PLAN SYNC: $normalized");
+
+    if (!mounted) return;
+    if (_plan == normalized) return; // evita rebuild innecesario
+
+    setState(() {
+      _plan = normalized;
+    });
+  }
+
+  Future<void> _openSubscription() async {
+    final result = await Navigator.pushNamed(context, AppRoutes.subscription);
+
+    if (!mounted) return;
+
+    // ✅ Si subscription devolvió plan, lo aplicamos directo
+    if (result is String) {
+      final normalized = result.trim().toLowerCase();
+      debugPrint("⬅️ PLAN DEVUELTO DESDE SUBSCRIPTION: $normalized");
+      setState(() => _plan = normalized);
+      return;
+    }
+
+    // ✅ Fallback: si no devolvió nada, re-leer desde prefs
+    await _syncPlanFromPrefs();
+  }
+
+  // ============================================================
+  // REALTIME
   // ============================================================
   void _attachRealtimeListeners() {
     if (_listenersAttached) return;
@@ -80,21 +140,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final rt = AuriRealtime.instance;
 
-    rt.addOnPartial((txt) {
-      if (!mounted) return;
-      setState(() => _thinkingText = txt);
-    });
+    rt.addOnThinking(
+      (isThinking) =>
+          SlimeMoodEngine.setVoiceState(isThinking ? "thinking" : "idle"),
+    );
 
-    rt.addOnFinal((txt) {
-      if (!mounted) return;
-      setState(() => _thinkingText = "");
-    });
-
-    rt.addOnThinking((isThinking) {
-      SlimeMoodEngine.setVoiceState(isThinking ? "thinking" : "idle");
-    });
-
-    // LIPSYNC — CONTROL TOTAL
     Timer? lipThrottle;
     rt.addOnLip((energy) {
       if (lipThrottle?.isActive ?? false) return;
@@ -102,20 +152,6 @@ class _HomeScreenState extends State<HomeScreen> {
         if (!mounted) return;
         setState(() => _slimeMouthEnergy = energy);
       });
-    });
-
-    rt.addOnAction((data) {
-      if (!mounted) return;
-      final action = data["action"];
-      if (action == "open_weather") {
-        Navigator.pushNamed(context, AppRoutes.weatherPage);
-      } else if (action == "open_outfit") {
-        Navigator.pushNamed(
-          context,
-          AppRoutes.outfitPage,
-          arguments: {"weather": _weather},
-        );
-      }
     });
   }
 
@@ -127,16 +163,22 @@ class _HomeScreenState extends State<HomeScreen> {
     _userName = prefs.getString('userName') ?? "Usuario";
     _userCity = prefs.getString('userCity') ?? "";
 
-    setState(() {});
+    // 🚫 IMPORTANTÍSIMO: aquí NO se toca _plan (evita bug de pegado)
     await _loadWeather();
     await _loadReminders();
+
+    if (!mounted) return;
+    setState(() {});
   }
 
   Future<void> _loadWeather() async {
+    _weatherLoading = true;
+    _weatherError = "";
+    _weather = null;
+
     if (_userCity.trim().isEmpty) {
       _weatherError = "Configura tu ciudad en Ajustes.";
       _weatherLoading = false;
-      setState(() {});
       return;
     }
 
@@ -150,30 +192,27 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     _weatherLoading = false;
-    setState(() {});
   }
 
   Future<void> _loadReminders() async {
     final box = Hive.box<ReminderHive>('reminders');
-    final now = DateTime.now().toLocal(); // 100% HORA LOCAL
+    final now = DateTime.now().toLocal(); // 100% hora local
 
     final cleaned = CleanupServiceHiveV7.clean(box.values.toList(), now);
-
     final horizon = now.add(const Duration(days: 7));
+
     final upcoming = cleaned.where((r) {
       final dt = DateTime.tryParse(r.dateIso)?.toLocal();
       return dt != null && dt.isAfter(now) && dt.isBefore(horizon);
     }).toList();
 
-    final deduped = _dedupForHome(upcoming)
+    // ✅ Mantener tu dedupe original (si no lo quieres, lo quitamos)
+    _upcoming = _dedupForHome(upcoming)
       ..sort((a, b) {
         final ad = DateTime.parse(a.dateIso).toLocal();
         final bd = DateTime.parse(b.dateIso).toLocal();
         return ad.compareTo(bd);
       });
-
-    _upcoming = deduped;
-    setState(() {});
   }
 
   List<ReminderHive> _dedupForHome(List<ReminderHive> list) {
@@ -191,6 +230,7 @@ class _HomeScreenState extends State<HomeScreen> {
         if (dt.isBefore(prevDt)) map[base] = r;
       }
     }
+
     return map.values.toList();
   }
 
@@ -208,6 +248,7 @@ class _HomeScreenState extends State<HomeScreen> {
       body: Stack(
         children: [
           _buildBackground(),
+
           SafeArea(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(20),
@@ -226,14 +267,19 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
 
-          // -------------------------------------------------
-          // AJUSTES GLASS FLOAT BUTTON
-          // -------------------------------------------------
+          // AJUSTES (NO TOCAR POSICIÓN)
           Positioned(
             top: 18,
             right: 18,
             child: GestureDetector(
-              onTap: () => Navigator.pushNamed(context, AppRoutes.settings),
+              behavior: HitTestBehavior.opaque, // ✅ asegura tap
+              onTap: () async {
+                // Abre settings
+                await Navigator.pushNamed(context, AppRoutes.settings);
+                // ✅ al volver, re-sincroniza plan (si cambió en settings)
+                if (!mounted) return;
+                await _syncPlanFromPrefs();
+              },
               child: Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -254,35 +300,69 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // BACKGROUND
-  Widget _buildBackground() {
-    return Container(
-      width: double.infinity,
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Color(0xFF16001F), Color(0xFF09000F)],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
+  Widget _buildBackground() => Container(
+    decoration: const BoxDecoration(
+      gradient: LinearGradient(
+        colors: [Color(0xFF16001F), Color(0xFF09000F)],
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
       ),
-    );
-  }
+    ),
+  );
 
-  // HEADERS — overflow-safe
+  // ------------------------------------------------------------
+  // HEADER (PLAN SIEMPRE VISIBLE)
+  // ------------------------------------------------------------
   Widget _buildHeader(ColorScheme cs) {
+    final normalized = _plan.trim().toLowerCase();
+    final label = normalized == 'pro'
+        ? 'PRO'
+        : normalized == 'ultra'
+        ? 'ULTRA'
+        : 'FREE';
+
+    final gradient = normalized == 'free'
+        ? [Colors.grey, Colors.grey.shade400]
+        : normalized == 'pro'
+        ? [const Color(0xFFFFD54F), const Color(0xFFFFB300)]
+        : [const Color(0xFF9C27B0), const Color(0xFF673AB7)];
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          "Hola, $_userName 👋",
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: cs.primary,
-            fontSize: 30,
-            fontWeight: FontWeight.bold,
-          ),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(
+              child: Text(
+                "Hola, $_userName 👋",
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: cs.primary,
+                  fontSize: 30,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(colors: gradient),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.black,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ],
         ),
+        const SizedBox(height: 4),
         Text(
           "Auri está lista para tu día ✨",
           maxLines: 1,
@@ -293,32 +373,42 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // SLIME + HUD
+  // ------------------------------------------------------------
+  // SLIME + CTA SUTIL
+  // ------------------------------------------------------------
   Widget _buildSlime(ColorScheme cs) {
     final moodLabel = _slimeMood?.label ?? "Auri está atenta a ti 💜";
 
     return Column(
       children: [
-        SizedBox(
-          width: 160,
-          height: 160,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              Container(
-                width: 160,
-                height: 160,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: (_slimeMood?.baseColor ?? cs.primary).withOpacity(0.2),
+        if (!_isPro)
+          GestureDetector(
+            onTap: _openSubscription,
+            child: Container(
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.white.withOpacity(0.25)),
+              ),
+              child: const Text(
+                "Hazte PRO ✨",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-              AuriSlimePlaceholder(
-                mouthEnergy: _slimeMouthEnergy,
-                wobble: _slimeMood?.wobble ?? 0.5,
-                glowColor: _slimeMood?.baseColor ?? cs.primary,
-              ),
-            ],
+            ),
+          ),
+        SizedBox(
+          width: 180,
+          height: 180,
+          child: SlimeEngineWidget(
+            color: _slimeMood?.baseColor ?? Colors.purpleAccent,
+            emotion: _slimeMood?.emoji ?? "🙂",
+            moodWobble: _slimeMood?.wobble ?? 0.5,
+            voiceEnergy: _slimeMouthEnergy,
           ),
         ),
         const SizedBox(height: 8),
@@ -326,51 +416,34 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(height: 8),
         Text(
           moodLabel,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
           textAlign: TextAlign.center,
-          style: TextStyle(color: cs.onSurface.withOpacity(0.7), fontSize: 14),
+          style: TextStyle(color: cs.onSurface.withOpacity(0.7)),
         ),
       ],
     );
   }
 
-  // WEATHER + OUTFIT
   Widget _buildWeatherAndOutfit() {
     if (_weatherLoading) return const CircularProgressIndicator();
-    if (_weatherError.isNotEmpty) return _ErrorCard(message: _weatherError);
+    if (_weatherError.isNotEmpty) return Text(_weatherError);
     if (_weather == null) return const SizedBox.shrink();
 
     return Column(
       children: [
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 600),
-          child: _GlassCard(
-            child: WeatherDisplayGlass(
-              weather: _weather!,
-              onRefresh: _loadWeather,
-            ),
-          ),
-        ),
+        WeatherDisplayGlass(weather: _weather!, onRefresh: _loadWeather),
         const SizedBox(height: 14),
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 600),
-          child: _GlassCard(
-            child: OutfitRecommendationGlass(
-              weather: _weather!,
-              onTap: () => Navigator.pushNamed(
-                context,
-                AppRoutes.outfitPage,
-                arguments: {"weather": _weather},
-              ),
-            ),
+        OutfitRecommendationGlass(
+          weather: _weather!,
+          onTap: () => Navigator.pushNamed(
+            context,
+            AppRoutes.outfitPage,
+            arguments: {"weather": _weather},
           ),
         ),
       ],
     );
   }
 
-  // REMINDERS — overflow proof
   Widget _buildReminders(ColorScheme cs) {
     return Column(
       children: [
@@ -391,21 +464,17 @@ class _HomeScreenState extends State<HomeScreen> {
             GestureDetector(
               onTap: () => Navigator.pushNamed(context, AppRoutes.reminders),
               child: Padding(
-                padding: const EdgeInsets.only(left: 8.0),
+                padding: const EdgeInsets.only(left: 8),
                 child: Text("Ver todos", style: TextStyle(color: cs.primary)),
               ),
             ),
           ],
         ),
         const SizedBox(height: 12),
-
         if (_upcoming.isEmpty)
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Text(
-              "No tienes recordatorios próximos ✨",
-              style: TextStyle(color: cs.onSurface.withOpacity(0.7)),
-            ),
+          Text(
+            "No tienes recordatorios próximos ✨",
+            style: TextStyle(color: cs.onSurface.withOpacity(0.7)),
           )
         else
           Column(
@@ -441,56 +510,6 @@ class _HomeScreenState extends State<HomeScreen> {
             }).toList(),
           ),
       ],
-    );
-  }
-}
-
-// SMALL CARDS
-class _GlassCard extends StatelessWidget {
-  final Widget child;
-  const _GlassCard({required this.child});
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(26),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.05),
-            borderRadius: BorderRadius.circular(26),
-            border: Border.all(color: cs.primary.withOpacity(0.35)),
-          ),
-          child: child,
-        ),
-      ),
-    );
-  }
-}
-
-class _ErrorCard extends StatelessWidget {
-  final String message;
-  const _ErrorCard({required this.message});
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(15),
-      decoration: BoxDecoration(
-        color: Colors.red.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.error_outline, color: Colors.redAccent),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(message, style: const TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
     );
   }
 }
